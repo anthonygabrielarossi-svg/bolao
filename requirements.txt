@@ -1,0 +1,4 @@
+streamlit
+pandas
+requests
+bcrypt>=4.1.2

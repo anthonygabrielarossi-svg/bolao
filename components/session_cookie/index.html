@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>session_cookie</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    (function () {
+      const DEFAULT_COOKIE_NAME = "bolao_session_token";
+      let componentReady = false;
+
+      function postToParent(message) {
+        window.parent.postMessage(message, "*");
+      }
+
+      function sendValue(value) {
+        postToParent({
+          isStreamlitMessage: true,
+          type: "streamlit:setComponentValue",
+          value: value,
+          dataType: "json",
+        });
+      }
+
+      function setFrameHeight(height) {
+        postToParent({
+          isStreamlitMessage: true,
+          type: "streamlit:setFrameHeight",
+          height: height,
+        });
+      }
+
+      function getArgs(event) {
+        const data = event && event.data ? event.data : {};
+        return data.args || {};
+      }
+
+      function getCookie(name) {
+        const target = `${encodeURIComponent(name)}=`;
+        const cookies = document.cookie ? document.cookie.split("; ") : [];
+        for (const cookie of cookies) {
+          if (cookie.startsWith(target)) {
+            return decodeURIComponent(cookie.slice(target.length));
+          }
+        }
+        return "";
+      }
+
+      function setCookie(name, value, maxAgeSeconds) {
+        const expires = new Date(Date.now() + (Number(maxAgeSeconds) || 0) * 1000).toUTCString();
+        const encodedName = encodeURIComponent(name);
+        const encodedValue = encodeURIComponent(value || "");
+        document.cookie = `${encodedName}=${encodedValue}; path=/; SameSite=Lax; Max-Age=${Math.max(Number(maxAgeSeconds) || 0, 0)}; Expires=${expires}`;
+      }
+
+      function clearCookie(name) {
+        const encodedName = encodeURIComponent(name);
+        document.cookie = `${encodedName}=; path=/; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+      }
+
+      function handleRender(event) {
+        if (!event || !event.data || event.data.type !== "streamlit:render") {
+          return;
+        }
+
+        const args = getArgs(event);
+        const action = String(args.action || "get").toLowerCase();
+        const cookieName = String(args.cookie_name || DEFAULT_COOKIE_NAME);
+        const token = String(args.session_token || args.token || "");
+        const maxAgeSeconds = Number(args.max_age_seconds || 0);
+
+        if (action === "set") {
+          setCookie(cookieName, token, maxAgeSeconds);
+          sendValue(token);
+        } else if (action === "clear") {
+          clearCookie(cookieName);
+          sendValue("");
+        } else {
+          sendValue(getCookie(cookieName));
+        }
+
+        setFrameHeight(0);
+      }
+
+      window.addEventListener("message", handleRender);
+
+      postToParent({
+        isStreamlitMessage: true,
+        type: "streamlit:componentReady",
+        apiVersion: 1,
+      });
+
+      componentReady = true;
+      setFrameHeight(0);
+    })();
+  </script>
+</body>
+</html>
