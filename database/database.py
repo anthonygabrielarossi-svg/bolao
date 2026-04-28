@@ -19,6 +19,14 @@ import streamlit as st
 from settings import SESSION_IDLE_TIMEOUT_MINUTES
 from utils.datetime_utils import bloquear_palpite_para_jogo, parse_iso_datetime
 from utils.team_assets import get_team_logo_url
+from utils.world_cup import (
+    WORLD_CUP_GROUPS_2026,
+    canonicalizar_time,
+    formatar_nome_time,
+    inferir_grupo_por_times,
+    normalizar_grupo_copa,
+    normalizar_texto as normalizar_texto_copa,
+)
 
 from .connection import (
     DEFAULT_SQLITE_PATH,
@@ -160,6 +168,7 @@ def _row_to_palpite_especial(row: object) -> PalpiteEspecial:
         melhor_jogador=row["melhor_jogador"] or "",
         primeiro_grupo_a=row["primeiro_grupo_a"] or "",
         segundo_grupo_a=row["segundo_grupo_a"] or "",
+        classificados_grupos=_row_get(row, "classificados_grupos", default="") or "",
     )
 
 
@@ -438,6 +447,7 @@ def init_db() -> None:
                 melhor_jogador TEXT,
                 primeiro_grupo_a TEXT,
                 segundo_grupo_a TEXT,
+                classificados_grupos TEXT,
                 FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
             );
 
@@ -536,6 +546,7 @@ def init_db() -> None:
                 melhor_jogador TEXT,
                 primeiro_grupo_a TEXT,
                 segundo_grupo_a TEXT,
+                classificados_grupos TEXT,
                 FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
             );
 
@@ -604,6 +615,7 @@ def init_db() -> None:
         _ensure_column(conn, "Jogos", "gols_casa", "INTEGER")
         _ensure_column(conn, "Jogos", "gols_fora", "INTEGER")
         _ensure_column(conn, "Jogos", "estadio", "TEXT")
+        _ensure_column(conn, "Palpites_Especiais", "classificados_grupos", "TEXT")
 
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_jogos_api_id ON Jogos(api_id)"
@@ -950,6 +962,48 @@ def listar_jogos_por_fase(fase: Optional[str] = None) -> List[Jogo]:
     return [jogo for jogo in jogos if _normalize_text(jogo.fase) == fase_normalizada]
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def obter_times_por_grupo() -> Dict[str, List[str]]:
+    times_por_grupo: Dict[str, Dict[str, str]] = {grupo: {} for grupo in GRUPOS_VALIDOS_COPA}
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT grupo, time_a, time_b, time_casa, time_fora
+            FROM Jogos
+            WHERE competicao = ? AND fase = 'Fase de Grupos'
+            """,
+            (COMPETICAO_PADRAO,),
+        ).fetchall()
+
+    for row in rows:
+        time_casa = row["time_casa"] or row["time_a"] or ""
+        time_fora = row["time_fora"] or row["time_b"] or ""
+        grupo = normalizar_grupo_copa(row["grupo"]) or inferir_grupo_por_times(time_casa, time_fora)
+        if grupo not in times_por_grupo:
+            continue
+
+        for time in (time_casa, time_fora):
+            nome = formatar_nome_time(canonicalizar_time(time))
+            chave = normalizar_texto_copa(nome)
+            if chave:
+                times_por_grupo[grupo][chave] = nome
+
+    resultado: Dict[str, List[str]] = {}
+    for grupo in GRUPOS_VALIDOS_COPA:
+        times = list(times_por_grupo[grupo].values())
+        ordem_oficial = {
+            normalizar_texto_copa(formatar_nome_time(time)): indice
+            for indice, time in enumerate(WORLD_CUP_GROUPS_2026.get(grupo, tuple()))
+        }
+        resultado[grupo] = sorted(
+            times,
+            key=lambda time: (ordem_oficial.get(normalizar_texto_copa(time), 99), normalizar_texto_copa(time)),
+        )
+
+    return resultado
+
+
 def listar_jogo_por_id(jogo_id: int) -> Optional[Jogo]:
     with get_connection() as conn:
         row = conn.execute(
@@ -1217,7 +1271,7 @@ def listar_palpites_especiais_usuario(user_id: int) -> Optional[PalpiteEspecial]
         row = conn.execute(
             """
             SELECT id, user_id, campeao, vice, artilheiro, melhor_jogador,
-                   primeiro_grupo_a, segundo_grupo_a
+                   primeiro_grupo_a, segundo_grupo_a, classificados_grupos
             FROM Palpites_Especiais
             WHERE user_id = ?
             """,
@@ -1232,7 +1286,7 @@ def listar_todos_palpites_especiais() -> List[PalpiteEspecial]:
         rows = conn.execute(
             """
             SELECT id, user_id, campeao, vice, artilheiro, melhor_jogador,
-                   primeiro_grupo_a, segundo_grupo_a
+                   primeiro_grupo_a, segundo_grupo_a, classificados_grupos
             FROM Palpites_Especiais
             ORDER BY user_id ASC
             """
@@ -1252,15 +1306,16 @@ def salvar_palpites_especiais(
     melhor_jogador: str,
     primeiro_grupo_a: str,
     segundo_grupo_a: str,
+    classificados_grupos: str = "",
 ) -> None:
     with get_connection() as conn:
         conn.execute(
             """
             INSERT INTO Palpites_Especiais (
                 user_id, campeao, vice, artilheiro, melhor_jogador,
-                primeiro_grupo_a, segundo_grupo_a
+                primeiro_grupo_a, segundo_grupo_a, classificados_grupos
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id)
             DO UPDATE SET
                 campeao = excluded.campeao,
@@ -1268,7 +1323,8 @@ def salvar_palpites_especiais(
                 artilheiro = excluded.artilheiro,
                 melhor_jogador = excluded.melhor_jogador,
                 primeiro_grupo_a = excluded.primeiro_grupo_a,
-                segundo_grupo_a = excluded.segundo_grupo_a
+                segundo_grupo_a = excluded.segundo_grupo_a,
+                classificados_grupos = excluded.classificados_grupos
             """,
             (
                 int(user_id),
@@ -1278,6 +1334,7 @@ def salvar_palpites_especiais(
                 melhor_jogador.strip(),
                 primeiro_grupo_a.strip(),
                 segundo_grupo_a.strip(),
+                classificados_grupos.strip(),
             ),
         )
         conn.commit()

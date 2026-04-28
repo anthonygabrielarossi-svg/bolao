@@ -7,6 +7,7 @@ palpites especiais sem acessar o SQLite diretamente.
 from __future__ import annotations
 
 import html
+import json
 from datetime import datetime, timezone
 from collections import defaultdict
 from textwrap import dedent
@@ -18,6 +19,7 @@ from database import (
     FASE_NAO_MAPEADA,
     carregar_palpites_especiais,
     carregar_palpites_partidas,
+    obter_times_por_grupo,
     salvar_palpites_especiais,
     salvar_palpites_partida,
     FASES_VALIDAS_COPA,
@@ -651,6 +653,159 @@ def _render_fase_simples(user_id: int, fase: str, jogos: List, palpites_partidas
             )
 
 
+def _carregar_classificados_salvos(palpites_especiais) -> Dict[str, Dict[str, str]]:
+    if not palpites_especiais:
+        return {}
+
+    classificados: Dict[str, Dict[str, str]] = {}
+    bruto = getattr(palpites_especiais, "classificados_grupos", "") or ""
+    if bruto:
+        try:
+            dados = json.loads(bruto)
+        except json.JSONDecodeError:
+            dados = {}
+        if isinstance(dados, dict):
+            for grupo, valores in dados.items():
+                if isinstance(valores, dict):
+                    classificados[str(grupo)] = {
+                        "primeiro": str(valores.get("primeiro") or ""),
+                        "segundo": str(valores.get("segundo") or ""),
+                    }
+
+    if "Grupo A" not in classificados:
+        classificados["Grupo A"] = {
+            "primeiro": getattr(palpites_especiais, "primeiro_grupo_a", "") or "",
+            "segundo": getattr(palpites_especiais, "segundo_grupo_a", "") or "",
+        }
+
+    return classificados
+
+
+def _opcoes_com_vazio(opcoes: List[str]) -> List[str]:
+    return [""] + [opcao for opcao in opcoes if opcao]
+
+
+def _indice_opcao(opcoes: List[str], valor_salvo: str) -> int:
+    return opcoes.index(valor_salvo) if valor_salvo in opcoes else 0
+
+
+def _render_select_time(label: str, opcoes: List[str], valor_salvo: str, key: str) -> str:
+    opcoes_select = _opcoes_com_vazio(opcoes)
+    if valor_salvo and valor_salvo not in opcoes_select:
+        st.caption(f"Valor salvo anteriormente fora da lista atual: {valor_salvo}")
+    return st.selectbox(
+        label,
+        opcoes_select,
+        index=_indice_opcao(opcoes_select, valor_salvo),
+        key=key,
+        format_func=lambda valor: "Selecione..." if not valor else valor,
+    )
+
+
+def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
+    st.subheader("Palpites Especiais")
+
+    times_por_grupo = obter_times_por_grupo()
+    grupos_copa = list(WORLD_CUP_GROUPS_2026.keys())
+    selecoes = sorted(
+        {time for grupo in grupos_copa for time in times_por_grupo.get(grupo, [])},
+        key=normalizar_texto,
+    )
+    classificados_salvos = _carregar_classificados_salvos(palpites_especiais)
+
+    with st.container():
+        st.markdown("#### Campeão e Vice")
+        col_campeao, col_vice = st.columns(2)
+
+        with col_campeao:
+            campeao = _render_select_time(
+                "Campeão",
+                selecoes,
+                palpites_especiais.campeao if palpites_especiais else "",
+                "palpite_especial_campeao",
+            )
+
+        opcoes_vice = [time for time in selecoes if time != campeao]
+        with col_vice:
+            vice = _render_select_time(
+                "Vice",
+                opcoes_vice,
+                palpites_especiais.vice if palpites_especiais else "",
+                "palpite_especial_vice",
+            )
+
+        st.markdown("#### Prêmios Individuais")
+        col_artilheiro, col_melhor = st.columns(2)
+        with col_artilheiro:
+            artilheiro = st.text_input(
+                "Artilheiro",
+                value=(palpites_especiais.artilheiro if palpites_especiais else ""),
+            )
+        with col_melhor:
+            melhor_jogador = st.text_input(
+                "Melhor jogador",
+                value=(palpites_especiais.melhor_jogador if palpites_especiais else ""),
+            )
+
+        st.markdown("#### Classificados por Grupo")
+        tabs = st.tabs(grupos_copa)
+        classificados_por_grupo: Dict[str, Dict[str, str]] = {}
+
+        for tab, grupo in zip(tabs, grupos_copa):
+            with tab:
+                times_grupo = times_por_grupo.get(grupo, [])
+                if not times_grupo:
+                    st.info("Nenhuma seleção encontrada para este grupo.")
+                    classificados_por_grupo[grupo] = {"primeiro": "", "segundo": ""}
+                    continue
+
+                salvos_grupo = classificados_salvos.get(grupo, {})
+                col_primeiro, col_segundo = st.columns(2)
+                with col_primeiro:
+                    primeiro = _render_select_time(
+                        "1º colocado",
+                        times_grupo,
+                        salvos_grupo.get("primeiro", ""),
+                        f"classificado_primeiro_{grupo.replace(' ', '_').lower()}",
+                    )
+
+                opcoes_segundo = [time for time in times_grupo if time != primeiro]
+                with col_segundo:
+                    segundo = _render_select_time(
+                        "2º colocado",
+                        opcoes_segundo,
+                        salvos_grupo.get("segundo", ""),
+                        f"classificado_segundo_{grupo.replace(' ', '_').lower()}",
+                    )
+
+                classificados_por_grupo[grupo] = {"primeiro": primeiro, "segundo": segundo}
+
+        if st.button("Salvar palpites especiais", key="salvar_palpites_especiais"):
+            if campeao and vice and campeao == vice:
+                st.error("Campeão e vice não podem ser a mesma seleção.")
+                return
+
+            for grupo, valores in classificados_por_grupo.items():
+                primeiro = valores.get("primeiro", "")
+                segundo = valores.get("segundo", "")
+                if primeiro and segundo and primeiro == segundo:
+                    st.error(f"{grupo}: 1º e 2º colocados não podem ser a mesma seleção.")
+                    return
+
+            grupo_a = classificados_por_grupo.get("Grupo A", {})
+            salvar_palpites_especiais(
+                user_id=user_id,
+                campeao=campeao,
+                vice=vice,
+                artilheiro=artilheiro,
+                melhor_jogador=melhor_jogador,
+                primeiro_grupo_a=grupo_a.get("primeiro", ""),
+                segundo_grupo_a=grupo_a.get("segundo", ""),
+                classificados_grupos=json.dumps(classificados_por_grupo, ensure_ascii=False),
+            )
+            st.success("Palpites especiais salvos com sucesso.")
+
+
 
 def render_tela_palpites(user_id: int) -> None:
     """Renderiza a tela principal de palpites."""
@@ -689,31 +844,4 @@ def render_tela_palpites(user_id: int) -> None:
         if jogos_por_fase.get(FASE_NAO_MAPEADA):
             _render_fase_simples(user_id, FASE_NAO_MAPEADA, jogos_por_fase.get(FASE_NAO_MAPEADA, []), palpites_partidas)
 
-    st.subheader("Palpites Especiais")
-    with st.form("form_palpites_especiais"):
-        campeao = st.text_input("Campeao", value=(palpites_especiais.campeao if palpites_especiais else ""))
-        vice = st.text_input("Vice", value=(palpites_especiais.vice if palpites_especiais else ""))
-        artilheiro = st.text_input("Artilheiro", value=(palpites_especiais.artilheiro if palpites_especiais else ""))
-        melhor_jogador = st.text_input(
-            "Melhor Jogador", value=(palpites_especiais.melhor_jogador if palpites_especiais else "")
-        )
-        primeiro_grupo_a = st.text_input(
-            "1o colocado do Grupo A", value=(palpites_especiais.primeiro_grupo_a if palpites_especiais else "")
-        )
-        segundo_grupo_a = st.text_input(
-            "2o colocado do Grupo A", value=(palpites_especiais.segundo_grupo_a if palpites_especiais else "")
-        )
-
-        salvar_especiais = st.form_submit_button("Salvar palpites especiais")
-
-    if salvar_especiais:
-        salvar_palpites_especiais(
-            user_id=user_id,
-            campeao=campeao,
-            vice=vice,
-            artilheiro=artilheiro,
-            melhor_jogador=melhor_jogador,
-            primeiro_grupo_a=primeiro_grupo_a,
-            segundo_grupo_a=segundo_grupo_a,
-        )
-        st.success("Palpites especiais salvos com sucesso.")
+    _render_palpites_especiais(user_id, palpites_especiais)

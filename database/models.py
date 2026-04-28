@@ -93,6 +93,7 @@ class PalpiteEspecial:
     melhor_jogador: str = ""
     primeiro_grupo_a: str = ""
     segundo_grupo_a: str = ""
+    classificados_grupos: str = ""
 
 
 @dataclass(slots=True)
