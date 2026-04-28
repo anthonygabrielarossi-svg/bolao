@@ -266,7 +266,7 @@ def render_tela_ao_vivo() -> None:
             """
             <div class="wc-live-hero">
                 <div class="wc-page-title">Ao Vivo</div>
-                <div class="wc-live-subtitle">Visualizacao experimental dos jogos em andamento da Copa do Mundo. Sem transmissao de video.</div>
+                <div class="wc-live-subtitle">Visualizacao dos jogos em andamento da Copa do Mundo.</div>
             </div>
             """
         ),
@@ -277,7 +277,7 @@ def render_tela_ao_vivo() -> None:
         st.warning("Modo de teste ativo — não usar em produção.")
         st.info("TEST_MODE_AO_VIVO ativo: buscando jogos ao vivo gerais para teste controlado.")
     else:
-        st.caption("Modo oficial da Copa do Mundo: filtra apenas a league=27.")
+        st.caption("Modo oficial da Copa do Mundo.")
 
     st.caption("Atualizacao automatica a cada 30 segundos.")
 

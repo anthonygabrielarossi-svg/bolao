@@ -34,10 +34,6 @@ from utils.world_cup import (
 )
 
 
-def _chave_segura(texto: str) -> str:
-    return "".join(ch if ch.isalnum() else "_" for ch in texto.lower())
-
-
 def _vencedor_previsto(time_a: str, time_b: str, palpite_a: int, palpite_b: int) -> str:
     if palpite_a > palpite_b:
         return time_a
@@ -427,7 +423,12 @@ def _render_tabela_classificacao_grupo(
     render_tabela_classificacao(times_para_tabela)
 
 
-def _render_jogo_card(jogo, palpite_atual: Dict[str, int], fase: str, jogo_chave: str) -> Dict[str, Any]:
+def _render_jogo_card(
+    user_id: int,
+    jogo,
+    jogo_id: int,
+    palpite_atual: Dict[str, int],
+) -> None:
     home_nome = formatar_nome_time(jogo.time_casa or jogo.time_a)
     away_nome = formatar_nome_time(jogo.time_fora or jogo.time_b)
     home_identity = render_team_identity_html(
@@ -482,7 +483,7 @@ def _render_jogo_card(jogo, palpite_atual: Dict[str, int], fase: str, jogo_chave
         max_value=20,
         step=1,
         value=int(palpite_atual.get("palpite_a", 0)),
-        key=f"palpite_a_{fase}_{jogo_chave}",
+        key=f"palpite_casa_{jogo_id}",
         label_visibility="collapsed",
         disabled=bloqueado,
     )
@@ -492,7 +493,7 @@ def _render_jogo_card(jogo, palpite_atual: Dict[str, int], fase: str, jogo_chave
         max_value=20,
         step=1,
         value=int(palpite_atual.get("palpite_b", 0)),
-        key=f"palpite_b_{fase}_{jogo_chave}",
+        key=f"palpite_fora_{jogo_id}",
         label_visibility="collapsed",
         disabled=bloqueado,
     )
@@ -501,33 +502,18 @@ def _render_jogo_card(jogo, palpite_atual: Dict[str, int], fase: str, jogo_chave
         f"Vencedor previsto: {_vencedor_previsto(home_nome, away_nome, int(palpite_a), int(palpite_b))}"
     )
 
-    return {"palpite_a": int(palpite_a), "palpite_b": int(palpite_b), "bloqueado": bloqueado}
-
-
-def _salvar_palpites_digitados(user_id: int, valores_digitados: Dict[int, Dict[str, Any]]) -> tuple[int, int]:
-    bloqueados = 0
-    salvos = 0
-    for jogo_id, valores in valores_digitados.items():
-        if valores.get("bloqueado"):
-            bloqueados += 1
-            continue
-
+    if st.button("Salvar palpite", key=f"salvar_palpite_{jogo_id}", disabled=bloqueado):
         try:
             salvar_palpites_partida(
                 user_id=user_id,
                 match_id=jogo_id,
-                palpite_a=valores["palpite_a"],
-                palpite_b=valores["palpite_b"],
+                palpite_a=int(palpite_a),
+                palpite_b=int(palpite_b),
             )
-            salvos += 1
         except ValueError as exc:
-            mensagem = str(exc)
-            if mensagem == "Palpite bloqueado: o jogo já começou.":
-                bloqueados += 1
-                continue
-            raise
-
-    return salvos, bloqueados
+            st.error(str(exc))
+        else:
+            st.success("Palpite salvo com sucesso.")
 
 
 def _parse_data_jogo_para_ordem(jogo) -> tuple:
@@ -567,27 +553,15 @@ def _render_jogos_rodada_grupo(
         return
 
     st.markdown(f"<div class='wc-round-label'>{rodada}ª rodada</div>", unsafe_allow_html=True)
-    with st.form(f"form_{_chave_segura(f'{grupo_label}_{rodada}')}"):
-        valores_digitados: Dict[int, Dict[str, Any]] = {}
-        bloqueados: List[bool] = []
-        for indice, jogo in enumerate(jogos_rodada, start=1):
-            jogo_id = jogo.id if jogo.id is not None else int(f"{rodada}{indice}")
-            palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
-            valor_jogo = _render_jogo_card(
-                jogo,
-                palpite_atual,
-                fase=grupo_label,
-                jogo_chave=_chave_segura(f"{grupo_label}_{rodada}_{jogo_id}"),
-            )
-            valores_digitados[jogo_id] = valor_jogo
-            bloqueados.append(bool(valor_jogo.get("bloqueado")))
-
-        if st.form_submit_button(f"Salvar palpites da {rodada}ª rodada", disabled=all(bloqueados)):
-            salvos, bloqueados_count = _salvar_palpites_digitados(user_id=user_id, valores_digitados=valores_digitados)
-            if salvos:
-                st.success(f"Palpites da {rodada}ª rodada salvos com sucesso.")
-            if bloqueados_count:
-                st.warning("Alguns palpites ja estavam encerrados e nao puderam ser alterados.")
+    for indice, jogo in enumerate(jogos_rodada, start=1):
+        jogo_id = jogo.id if jogo.id is not None else int(f"{rodada}{indice}")
+        palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
+        _render_jogo_card(
+            user_id=user_id,
+            jogo=jogo,
+            jogo_id=jogo_id,
+            palpite_atual=palpite_atual,
+        )
 
 
 def render_abas_rodadas_grupo(
@@ -649,26 +623,15 @@ def _render_fase_grupos(
 
     if jogos_sem_grupo:
         st.markdown("<div class='wc-round-label'>Não mapeados</div>", unsafe_allow_html=True)
-        with st.form("form_nao_mapeados"):
-            valores_digitados: Dict[int, Dict[str, Any]] = {}
-            bloqueados: List[bool] = []
-            for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos_sem_grupo), start=1):
-                jogo_id = jogo.id if jogo.id is not None else indice
-                palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
-                valor_jogo = _render_jogo_card(
-                    jogo,
-                    palpite_atual,
-                    fase="nao_mapeados",
-                    jogo_chave=_chave_segura(f"nao_mapeado_{jogo_id}"),
-                )
-                valores_digitados[jogo_id] = valor_jogo
-                bloqueados.append(bool(valor_jogo.get("bloqueado")))
-            if st.form_submit_button("Salvar palpites não mapeados", disabled=all(bloqueados)):
-                salvos, bloqueados_count = _salvar_palpites_digitados(user_id=user_id, valores_digitados=valores_digitados)
-                if salvos:
-                    st.success("Palpites não mapeados salvos com sucesso.")
-                if bloqueados_count:
-                    st.warning("Alguns palpites ja estavam encerrados e nao puderam ser alterados.")
+        for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos_sem_grupo), start=1):
+            jogo_id = jogo.id if jogo.id is not None else indice
+            palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
+            _render_jogo_card(
+                user_id=user_id,
+                jogo=jogo,
+                jogo_id=jogo_id,
+                palpite_atual=palpite_atual,
+            )
 
 
 def _render_fase_simples(user_id: int, fase: str, jogos: List, palpites_partidas: Dict[int, Dict[str, int]]) -> None:
@@ -677,26 +640,15 @@ def _render_fase_simples(user_id: int, fase: str, jogos: List, palpites_partidas
 
     fase_exibicao = _rotulo_fase_exibicao(fase)
     with st.expander(fase_exibicao, expanded=False):
-        with st.form(f"form_{_chave_segura(fase)}"):
-            valores_digitados: Dict[int, Dict[str, Any]] = {}
-            bloqueados: List[bool] = []
-            for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos), start=1):
-                jogo_id = jogo.id if jogo.id is not None else indice
-                palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
-                valor_jogo = _render_jogo_card(
-                    jogo,
-                    palpite_atual,
-                    fase=fase,
-                    jogo_chave=_chave_segura(f"{fase}_{jogo_id}"),
-                )
-                valores_digitados[jogo_id] = valor_jogo
-                bloqueados.append(bool(valor_jogo.get("bloqueado")))
-            if st.form_submit_button(f"Salvar palpites de {fase_exibicao}", disabled=all(bloqueados)):
-                salvos, bloqueados_count = _salvar_palpites_digitados(user_id=user_id, valores_digitados=valores_digitados)
-                if salvos:
-                    st.success(f"Palpites da fase {fase_exibicao} salvos com sucesso.")
-                if bloqueados_count:
-                    st.warning("Alguns palpites ja estavam encerrados e nao puderam ser alterados.")
+        for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos), start=1):
+            jogo_id = jogo.id if jogo.id is not None else indice
+            palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
+            _render_jogo_card(
+                user_id=user_id,
+                jogo=jogo,
+                jogo_id=jogo_id,
+                palpite_atual=palpite_atual,
+            )
 
 
 
