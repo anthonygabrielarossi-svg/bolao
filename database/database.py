@@ -1159,6 +1159,19 @@ def listar_palpites_partidas_usuario(user_id: int) -> List[PalpitePartida]:
     return [_row_to_palpite_partida(row) for row in rows]
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def listar_todos_palpites_partidas() -> List[PalpitePartida]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, match_id, palpite_a, palpite_b
+            FROM Palpites_Partidas
+            ORDER BY user_id ASC, match_id ASC
+            """
+        ).fetchall()
+    return [_row_to_palpite_partida(row) for row in rows]
+
+
 def carregar_palpites_partidas(user_id: int) -> Dict[int, Dict[str, int]]:
     """Retorna os palpites de partidas em formato amigavel para a interface."""
     return {
@@ -1211,6 +1224,20 @@ def listar_palpites_especiais_usuario(user_id: int) -> Optional[PalpiteEspecial]
             (int(user_id),),
         ).fetchone()
     return _row_to_palpite_especial(row) if row else None
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def listar_todos_palpites_especiais() -> List[PalpiteEspecial]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, campeao, vice, artilheiro, melhor_jogador,
+                   primeiro_grupo_a, segundo_grupo_a
+            FROM Palpites_Especiais
+            ORDER BY user_id ASC
+            """
+        ).fetchall()
+    return [_row_to_palpite_especial(row) for row in rows]
 
 
 # Nome mantido para facilitar a migracao da interface antiga.
@@ -1400,6 +1427,18 @@ def salvar_classificacao_grupos(classificacoes: Sequence[ClassificacaoGrupo]) ->
     _clear_data_cache()
 
 
+def atualizar_pontuacoes_usuarios_em_lote(pontuacoes: Dict[int, int]) -> None:
+    if not pontuacoes:
+        return
+    with get_connection() as conn:
+        conn.executemany(
+            "UPDATE Usuarios SET pontuacao_total = ? WHERE id = ?",
+            [(int(pontos), int(user_id)) for user_id, pontos in pontuacoes.items()],
+        )
+        conn.commit()
+    _clear_data_cache()
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def listar_classificacao_grupos(grupo: Optional[str] = None) -> List[ClassificacaoGrupo]:
     sql = """
@@ -1433,6 +1472,40 @@ def obter_resumo_banco() -> Dict[str, int]:
         "usuarios": int(usuarios or 0),
         "jogos": int(jogos or 0),
         "palpites": int((palpites_partidas or 0) + (palpites_especiais or 0)),
+    }
+
+
+def obter_diagnostico_banco() -> Dict[str, object]:
+    with get_connection() as conn:
+        resumo = obter_resumo_banco()
+        fases = conn.execute(
+            """
+            SELECT COALESCE(fase, ?) AS fase, COUNT(*) AS total
+            FROM Jogos
+            GROUP BY COALESCE(fase, ?)
+            ORDER BY fase ASC
+            """,
+            (FASE_NAO_MAPEADA, FASE_NAO_MAPEADA),
+        ).fetchall()
+        sem_grupo = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM Jogos
+            WHERE COALESCE(TRIM(grupo), '') = ''
+            """
+        ).fetchone()["total"]
+        sessoes_ativas = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM Sessoes
+            WHERE revoked = 0
+            """
+        ).fetchone()["total"]
+    return {
+        **resumo,
+        "por_fase": {str(row["fase"]): int(row["total"] or 0) for row in fases},
+        "jogos_sem_grupo": int(sem_grupo or 0),
+        "sessoes_ativas": int(sessoes_ativas or 0),
     }
 
 

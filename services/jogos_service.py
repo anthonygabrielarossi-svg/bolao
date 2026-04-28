@@ -9,11 +9,14 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Callable, Dict, List, Optional
 
+import streamlit as st
+
+import settings
 from database import (
     COMPETICAO_PADRAO,
     FASE_NAO_MAPEADA,
     Jogo,
-    buscar_jogo_por_api_id,
+    get_connection,
     listar_jogos,
     salvar_ou_atualizar_jogo,
     salvar_jogos_em_lote,
@@ -151,10 +154,10 @@ def importar_jogos_copa(
     _exigir_admin(executed_by_user_id)
 
     eventos_api = buscar_todos_eventos_copa()
-    print(f"[BSD] {len(eventos_api)} eventos retornados pela API")
+    settings.debug_log(f"[BSD] {len(eventos_api)} eventos retornados pela API")
 
     if not eventos_api:
-        print("Nenhum jogo foi retornado pela API.")
+        settings.debug_log("Nenhum jogo foi retornado pela API.")
         return 0
 
     jogos_brutos: List[Jogo] = []
@@ -163,9 +166,7 @@ def importar_jogos_copa(
         jogo.competicao = COMPETICAO_PADRAO
         jogos_brutos.append(jogo)
 
-    print(f"[BSD] {len(jogos_brutos)} eventos processados")
-    ids_brutos = salvar_jogos_em_lote(jogos_brutos)
-    print(f"[BSD] {len(ids_brutos)} jogos salvos na etapa bruta")
+    settings.debug_log(f"[BSD] {len(jogos_brutos)} eventos processados")
 
     jogos_classificados: List[Jogo] = []
     contagem_fases: Counter[str] = Counter()
@@ -181,8 +182,19 @@ def importar_jogos_copa(
         jogo_classificado.grupo = None
         jogos_classificados.append(jogo_classificado)
 
-    ids_classificados = salvar_jogos_em_lote(jogos_classificados)
-    print(f"[BSD] {len(ids_classificados)} jogos classificados na etapa 2")
+    with get_connection() as conn:
+        ids_brutos = [
+            salvar_ou_atualizar_jogo(jogo, connection=conn)
+            for jogo in jogos_brutos
+        ]
+        ids_classificados = [
+            salvar_ou_atualizar_jogo(jogo, connection=conn)
+            for jogo in jogos_classificados
+        ]
+        conn.commit()
+    st.cache_data.clear()
+    settings.debug_log(f"[BSD] {len(ids_brutos)} jogos salvos na etapa bruta")
+    settings.debug_log(f"[BSD] {len(ids_classificados)} jogos classificados na etapa 2")
 
     ordem_fases = [
         "Fase de Grupos",
@@ -196,11 +208,11 @@ def importar_jogos_copa(
     ]
     for fase in ordem_fases:
         if fase in contagem_fases:
-            print(f"[BSD] {contagem_fases[fase]} classificados como {fase}")
+            settings.debug_log(f"[BSD] {contagem_fases[fase]} classificados como {fase}")
 
-    print(f"[BSD] {contagem_fases.get(FASE_NAO_MAPEADA, 0)} jogos sem fase mapeada")
-    print("[BSD] 0 jogos descartados por fase")
-    print(f"{len(ids_classificados)} jogos importados com sucesso")
+    settings.debug_log(f"[BSD] {contagem_fases.get(FASE_NAO_MAPEADA, 0)} jogos sem fase mapeada")
+    settings.debug_log("[BSD] 0 jogos descartados por fase")
+    settings.debug_log(f"{len(ids_classificados)} jogos importados com sucesso")
     return len(ids_classificados)
 
 
@@ -220,12 +232,12 @@ def atualizar_jogos_copa(
 
     eventos_api, resumo_api = buscar_todos_eventos_copa_com_resumo()
     total_eventos = len(eventos_api)
-    print(f"[BSD] count informado pela API (season): {resumo_api.get('season_count')}")
-    print(f"[BSD] count informado pela API (fallback): {resumo_api.get('fallback_count')}")
-    print(f"[BSD] {total_eventos} eventos baixados para atualizacao")
+    settings.debug_log(f"[BSD] count informado pela API (season): {resumo_api.get('season_count')}")
+    settings.debug_log(f"[BSD] count informado pela API (fallback): {resumo_api.get('fallback_count')}")
+    settings.debug_log(f"[BSD] {total_eventos} eventos baixados para atualizacao")
 
     if total_eventos == 0:
-        print("Nenhum jogo foi retornado pela API.")
+        settings.debug_log("Nenhum jogo foi retornado pela API.")
         return {
             "total_eventos": 0,
             "baixados": 0,
@@ -248,47 +260,55 @@ def atualizar_jogos_copa(
     placeholders = 0
     reais = 0
     jogos_processados = 0
+    existentes_por_api_id = {
+        int(jogo.api_id): jogo
+        for jogo in listar_jogos()
+        if jogo.api_id is not None
+    }
 
-    for indice, evento in enumerate(eventos_api, start=1):
-        jogo_api = mapear_evento_para_jogo(evento)
-        jogo_api.competicao = COMPETICAO_PADRAO
+    with get_connection() as conn:
+        for indice, evento in enumerate(eventos_api, start=1):
+            jogo_api = mapear_evento_para_jogo(evento)
+            jogo_api.competicao = COMPETICAO_PADRAO
 
-        existente = buscar_jogo_por_api_id(int(jogo_api.api_id)) if jogo_api.api_id is not None else None
-        if existente is None:
-            inseridos += 1
-        elif _jogo_sincronizado_igual(existente, jogo_api):
-            sem_alteracao += 1
-        else:
-            atualizados += 1
+            existente = existentes_por_api_id.get(int(jogo_api.api_id)) if jogo_api.api_id is not None else None
+            if existente is None:
+                inseridos += 1
+            elif _jogo_sincronizado_igual(existente, jogo_api):
+                sem_alteracao += 1
+            else:
+                atualizados += 1
 
-        if jogo_api.is_placeholder_bracket:
-            placeholders += 1
-        else:
-            reais += 1
+            if jogo_api.is_placeholder_bracket:
+                placeholders += 1
+            else:
+                reais += 1
 
-        if jogo_api.fase == FASE_NAO_MAPEADA:
-            nao_mapeados += 1
+            if jogo_api.fase == FASE_NAO_MAPEADA:
+                nao_mapeados += 1
 
-        if jogo_api.finalizado:
-            finalizados += 1
+            if jogo_api.finalizado:
+                finalizados += 1
 
-        salvar_ou_atualizar_jogo(jogo_api)
-        jogos_processados += 1
+            salvar_ou_atualizar_jogo(jogo_api, connection=conn)
+            jogos_processados += 1
 
-        if progress_callback is not None:
-            progress_callback(indice, total_eventos)
+            if progress_callback is not None:
+                progress_callback(indice, total_eventos)
+        conn.commit()
+    st.cache_data.clear()
 
-    print(f"[BSD] {jogos_processados} eventos processados")
-    print(f"[BSD] {inseridos} jogos inseridos")
-    print(f"[BSD] {atualizados} jogos atualizados")
-    print(f"[BSD] {sem_alteracao} jogos sem alteracao")
-    print(f"[BSD] {finalizados} jogos finalizados")
-    print(f"[BSD] {nao_mapeados} jogos com fase nao mapeada")
-    print(f"[BSD] {placeholders} confrontos placeholder de bracket")
-    print(f"[BSD] {reais} partidas com selecoes reais")
+    settings.debug_log(f"[BSD] {jogos_processados} eventos processados")
+    settings.debug_log(f"[BSD] {inseridos} jogos inseridos")
+    settings.debug_log(f"[BSD] {atualizados} jogos atualizados")
+    settings.debug_log(f"[BSD] {sem_alteracao} jogos sem alteracao")
+    settings.debug_log(f"[BSD] {finalizados} jogos finalizados")
+    settings.debug_log(f"[BSD] {nao_mapeados} jogos com fase nao mapeada")
+    settings.debug_log(f"[BSD] {placeholders} confrontos placeholder de bracket")
+    settings.debug_log(f"[BSD] {reais} partidas com selecoes reais")
 
     if placeholders == total_eventos and total_eventos > 0:
-        print("A API retornou apenas confrontos da chave eliminatoria; fase de grupos nao presente neste retorno.")
+        settings.debug_log("A API retornou apenas confrontos da chave eliminatoria; fase de grupos nao presente neste retorno.")
 
     ranking_recalculado = 0
     ranking_recalculado_executado = False
@@ -296,13 +316,13 @@ def atualizar_jogos_copa(
         try:
             ranking = recalcular_ranking_automaticamente(executed_by_user_id=executed_by_user_id)
         except Exception as exc:
-            print(f"[BSD] Aviso: nao foi possivel recalcular o ranking automaticamente: {exc}")
+            settings.debug_log(f"[BSD] Aviso: nao foi possivel recalcular o ranking automaticamente: {exc}")
         else:
             ranking_recalculado = len(ranking)
             ranking_recalculado_executado = True
-            print(f"[BSD] Ranking recalculado para {ranking_recalculado} usuarios.")
+            settings.debug_log(f"[BSD] Ranking recalculado para {ranking_recalculado} usuarios.")
     else:
-        print("[BSD] Nenhum jogo finalizado encontrado; ranking nao foi recalculado.")
+        settings.debug_log("[BSD] Nenhum jogo finalizado encontrado; ranking nao foi recalculado.")
 
     return {
         "total_eventos": total_eventos,
@@ -331,6 +351,7 @@ def corrigir_fases_copa(executed_by_user_id: Optional[int] = None) -> Dict[str, 
     total = len(jogos_copa)
     contagem_fases: Counter[str] = Counter()
     confirmacoes: Dict[int, str] = {}
+    jogos_atualizados: List[Jogo] = []
     atualizados = 0
 
     for jogo in jogos_copa:
@@ -339,8 +360,14 @@ def corrigir_fases_copa(executed_by_user_id: Optional[int] = None) -> Dict[str, 
         if _normalizar_texto(jogo.fase) != _normalizar_texto(fase_correta):
             jogo.fase = fase_correta
             jogo.competicao = COMPETICAO_PADRAO
-            salvar_ou_atualizar_jogo(jogo)
+            jogos_atualizados.append(jogo)
             atualizados += 1
+    if atualizados:
+        with get_connection() as conn:
+            for jogo in jogos_atualizados:
+                salvar_ou_atualizar_jogo(jogo, connection=conn)
+            conn.commit()
+        st.cache_data.clear()
 
     rounds_confirmacao = {
         6: "16-avos de Final",
@@ -354,14 +381,14 @@ def corrigir_fases_copa(executed_by_user_id: Optional[int] = None) -> Dict[str, 
         fase_encontrada = inferir_fase({"round_number": round_number})
         confirmacoes[round_number] = fase_encontrada
         if jogo_round is not None:
-            print(
+            settings.debug_log(
                 f"[BSD] round_number {round_number}: "
                 f"{jogo_round.time_a} x {jogo_round.time_b} -> {jogo_round.fase}"
             )
         else:
-            print(f"[BSD] round_number {round_number} -> {fase_encontrada} (nenhum jogo encontrado)")
+            settings.debug_log(f"[BSD] round_number {round_number} -> {fase_encontrada} (nenhum jogo encontrado)")
         if fase_encontrada != fase_esperada:
-            print(
+            settings.debug_log(
                 f"[BSD] ATENCAO: round_number {round_number} deveria mapear para {fase_esperada}, "
                 f"mas retornou {fase_encontrada}"
             )
@@ -377,12 +404,12 @@ def corrigir_fases_copa(executed_by_user_id: Optional[int] = None) -> Dict[str, 
         FASE_NAO_MAPEADA,
     ]
 
-    print(f"[BSD] {total} jogos da Copa verificados no saneamento.")
-    print(f"[BSD] {atualizados} jogos tiveram a fase atualizada.")
+    settings.debug_log(f"[BSD] {total} jogos da Copa verificados no saneamento.")
+    settings.debug_log(f"[BSD] {atualizados} jogos tiveram a fase atualizada.")
     for fase in ordem_fases:
         quantidade = contagem_fases.get(fase, 0)
-        print(f"[BSD] {quantidade} jogos com fase='{fase}'")
-    print(f"[BSD] {contagem_fases.get(FASE_NAO_MAPEADA, 0)} jogos nao mapeados.")
+        settings.debug_log(f"[BSD] {quantidade} jogos com fase='{fase}'")
+    settings.debug_log(f"[BSD] {contagem_fases.get(FASE_NAO_MAPEADA, 0)} jogos nao mapeados.")
 
     return {
         "total": total,
@@ -407,6 +434,7 @@ def corrigir_grupos_fase_de_grupos(executed_by_user_id: Optional[int] = None) ->
     total = len(jogos_copa)
     contagem_por_grupo: Counter[str] = Counter()
     jogos_nao_mapeados: List[Dict[str, Any]] = []
+    jogos_atualizados: List[Jogo] = []
     atualizados = 0
 
     for jogo in jogos_copa:
@@ -416,7 +444,7 @@ def corrigir_grupos_fase_de_grupos(executed_by_user_id: Optional[int] = None) ->
             if _normalizar_texto(jogo.grupo) != _normalizar_texto(grupo_correto):
                 jogo.grupo = grupo_correto
                 jogo.competicao = COMPETICAO_PADRAO
-                salvar_ou_atualizar_jogo(jogo)
+                jogos_atualizados.append(jogo)
                 atualizados += 1
         else:
             jogos_nao_mapeados.append(
@@ -437,16 +465,23 @@ def corrigir_grupos_fase_de_grupos(executed_by_user_id: Optional[int] = None) ->
                 }
             )
 
-    print(f"[BSD] {total} jogos de fase de grupos verificados para correção de grupo.")
-    print(f"[BSD] {atualizados} jogos tiveram o grupo atualizado.")
+    if jogos_atualizados:
+        with get_connection() as conn:
+            for jogo in jogos_atualizados:
+                salvar_ou_atualizar_jogo(jogo, connection=conn)
+            conn.commit()
+        st.cache_data.clear()
+
+    settings.debug_log(f"[BSD] {total} jogos de fase de grupos verificados para correção de grupo.")
+    settings.debug_log(f"[BSD] {atualizados} jogos tiveram o grupo atualizado.")
     for grupo in WORLD_CUP_GROUPS_2026.keys():
         quantidade = contagem_por_grupo.get(grupo, 0)
-        print(f"[BSD] {grupo}: {quantidade} jogos")
-    print(f"[BSD] Não mapeados: {len(jogos_nao_mapeados)}")
+        settings.debug_log(f"[BSD] {grupo}: {quantidade} jogos")
+    settings.debug_log(f"[BSD] Não mapeados: {len(jogos_nao_mapeados)}")
     if jogos_nao_mapeados:
-        print("[BSD] Jogos sem grupo identificado:")
+        settings.debug_log("[BSD] Jogos sem grupo identificado:")
         for item in jogos_nao_mapeados:
-            print(
+            settings.debug_log(
                 f"[BSD] - {item['time_casa']} x {item['time_fora']} | "
                 f"fase={item['fase']} | round={item['round_number']} | data={item['data_jogo']}"
             )
@@ -507,6 +542,7 @@ def atualizar_resultados(
 
     jogos_local = listar_jogos()
     atualizados = 0
+    jogos_atualizados: List[Jogo] = []
 
     for jogo in jogos_local:
         if _normalizar_texto(jogo.competicao) != _normalizar_texto(COMPETICAO_PADRAO):
@@ -519,12 +555,19 @@ def atualizar_resultados(
         except BSDAPIError as exc:
             if exc.status_code in {401, 403}:
                 raise
-            print(f"[BSD] Falha ao atualizar o jogo {jogo.api_id}: {exc}")
+            settings.debug_log(f"[BSD] Falha ao atualizar o jogo {jogo.api_id}: {exc}")
             continue
 
         jogo_atualizado.competicao = COMPETICAO_PADRAO
-        salvar_ou_atualizar_jogo(jogo_atualizado)
+        jogos_atualizados.append(jogo_atualizado)
         atualizados += 1
+
+    if jogos_atualizados:
+        with get_connection() as conn:
+            for jogo_atualizado in jogos_atualizados:
+                salvar_ou_atualizar_jogo(jogo_atualizado, connection=conn)
+            conn.commit()
+        st.cache_data.clear()
 
     return atualizados
 

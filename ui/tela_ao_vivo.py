@@ -20,6 +20,13 @@ from utils.formatters import formatar_nome_time
 from utils.team_assets import render_team_identity_html
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def buscar_jogos_ao_vivo_cache(test_mode: bool) -> List[Dict[str, Any]]:
+    if test_mode:
+        return buscar_jogos_ao_vivo_teste()
+    return buscar_jogos_ao_vivo()
+
+
 def _aplicar_auto_refresh(interval_ms: int = 30_000) -> None:
     if st_autorefresh is not None:
         st_autorefresh(interval=interval_ms, key="ao_vivo_autorefresh")
@@ -267,20 +274,19 @@ def render_tela_ao_vivo() -> None:
     )
 
     if TEST_MODE_AO_VIVO:
+        st.warning("Modo de teste ativo — não usar em produção.")
         st.info("TEST_MODE_AO_VIVO ativo: buscando jogos ao vivo gerais para teste controlado.")
     else:
         st.caption("Modo oficial da Copa do Mundo: filtra apenas a league=27.")
 
     if st.button("Atualizar agora", use_container_width=True):
+        buscar_jogos_ao_vivo_cache.clear()
         st.rerun()
 
     st.caption("Atualizacao automatica a cada 30 segundos.")
 
     try:
-        if TEST_MODE_AO_VIVO:
-            jogos_ao_vivo = buscar_jogos_ao_vivo_teste()
-        else:
-            jogos_ao_vivo = buscar_jogos_ao_vivo()
+        jogos_ao_vivo = buscar_jogos_ao_vivo_cache(TEST_MODE_AO_VIVO)
     except BSDAPIError as exc:
         st.warning(f"Nao foi possivel consultar a API ao vivo: {exc}")
         jogos_ao_vivo = []

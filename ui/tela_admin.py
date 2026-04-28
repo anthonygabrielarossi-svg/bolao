@@ -17,10 +17,13 @@ from database import (
     FASE_NAO_MAPEADA,
     carregar_classificacao_grupos,
     carregar_resultados_oficiais,
+    get_database_kind,
     listar_jogos,
+    obter_diagnostico_banco,
     salvar_resultados_oficiais,
     usuario_eh_admin,
 )
+from settings import DEBUG, TEST_MODE_AO_VIVO
 from services.api_service import BSDAPIError
 from services.classificacao_service import atualizar_tabela_classificacao
 from services.jogos_service import (
@@ -102,6 +105,30 @@ def render_tela_admin(user_id: int) -> None:
     with aba_importar:
         st.subheader("Importacao de jogos")
         st.caption(f"Fluxo fixo para {COMPETICAO_PADRAO} (liga 27).")
+        if st.button("Diagnóstico do sistema"):
+            try:
+                diagnostico = obter_diagnostico_banco()
+            except DatabaseError as exc:
+                st.error(f"Erro ao consultar diagnostico: {exc}")
+            else:
+                col_db, col_users, col_games, col_palpites = st.columns(4)
+                col_db.metric("Banco", get_database_kind())
+                col_users.metric("Usuarios", diagnostico["usuarios"])
+                col_games.metric("Jogos", diagnostico["jogos"])
+                col_palpites.metric("Palpites", diagnostico["palpites"])
+                col_sem, col_sess, col_live, col_debug = st.columns(4)
+                col_sem.metric("Jogos sem grupo", diagnostico["jogos_sem_grupo"])
+                col_sess.metric("Sessoes ativas", diagnostico["sessoes_ativas"])
+                col_live.metric("TEST_MODE_AO_VIVO", "ON" if TEST_MODE_AO_VIVO else "OFF")
+                col_debug.metric("DEBUG", "ON" if DEBUG else "OFF")
+                st.dataframe(
+                    pd.DataFrame(
+                        sorted(diagnostico["por_fase"].items()),
+                        columns=["Fase", "Total"],
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
         if st.button("Importar jogos agora"):
             try:
                 total = importar_jogos_copa(executed_by_user_id=user_id)

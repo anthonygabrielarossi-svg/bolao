@@ -5,3 +5,5 @@ __pycache__/
 *.pyo
 bolao_copa.db
 *.db
+backup_ao_vivo/
+backup_ao_vivo.zip

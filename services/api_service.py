@@ -84,7 +84,7 @@ def _request_json(
     except requests.RequestException as exc:
         raise BSDAPIError(f"Falha de rede ao consultar {url}: {exc}", url=url) from exc
 
-    print(f"[BSD] {response.request.method} {response.url} -> {response.status_code}")
+    settings.debug_log(f"[BSD] {response.request.method} {response.url} -> {response.status_code}")
 
     if response.status_code == 401:
         raise BSDAPIError("Token invalido ou nao configurado", 401, response.url)
@@ -314,7 +314,7 @@ def _coletar_paginado(
         if isinstance(payload, list):
             if any(not isinstance(item, dict) for item in payload):
                 raise BSDAPIError(f"A resposta de {proxima_url} trouxe itens em formato invalido.", url=proxima_url)
-            print(f"[BSD] Pagina {pagina} de {rotulo}: {len(payload)} resultados")
+            settings.debug_log(f"[BSD] Pagina {pagina} de {rotulo}: {len(payload)} resultados")
             itens.extend(payload)
             break
 
@@ -333,7 +333,7 @@ def _coletar_paginado(
         if any(not isinstance(item, dict) for item in resultados):
             raise BSDAPIError(f"A resposta de {proxima_url} trouxe itens em formato invalido.", url=proxima_url)
 
-        print(f"[BSD] Pagina {pagina} de {rotulo}: {len(resultados)} resultados")
+        settings.debug_log(f"[BSD] Pagina {pagina} de {rotulo}: {len(resultados)} resultados")
         itens.extend(resultados)
 
         next_url = payload.get("next")
@@ -419,12 +419,12 @@ def obter_season_copa(timeout: int = DEFAULT_TIMEOUT) -> Optional[Dict[str, Any]
     )
 
     if not seasons:
-        print("[BSD] Nenhuma season encontrada para league=27.")
+        settings.debug_log("[BSD] Nenhuma season encontrada para league=27.")
         return None
 
     candidatos = [season for season in seasons if isinstance(season, dict)]
     if not candidatos:
-        print("[BSD] A resposta de seasons veio vazia ou invalida.")
+        settings.debug_log("[BSD] A resposta de seasons veio vazia ou invalida.")
         return None
 
     current = [season for season in candidatos if _to_bool(season.get("is_current"))]
@@ -438,12 +438,12 @@ def obter_season_copa(timeout: int = DEFAULT_TIMEOUT) -> Optional[Dict[str, Any]
             or "2026" in _normalize_text(season.get("name") or season.get("title"))
         ]
         if not candidatos_2026:
-            print("[BSD] Nenhuma season atual ou de 2026 encontrada para league=27.")
+            settings.debug_log("[BSD] Nenhuma season atual ou de 2026 encontrada para league=27.")
             return None
         selecionada = max(candidatos_2026, key=_valor_season_copa)
 
     season_id = _to_int_or_none(selecionada.get("id"))
-    print(
+    settings.debug_log(
         "[BSD] Season selecionada: "
         f"id={season_id}, nome={selecionada.get('name') or selecionada.get('title') or '-'}, "
         f"current={_to_bool(selecionada.get('is_current'))}, "
@@ -469,7 +469,7 @@ def buscar_todos_eventos_copa_com_resumo(
     if season is not None:
         season_id = _to_int_or_none(season.get("id"))
         if season_id is not None:
-            print(f"[BSD] Importando via season_id={season_id} e tz={WORLD_CUP_TZ}")
+            settings.debug_log(f"[BSD] Importando via season_id={season_id} e tz={WORLD_CUP_TZ}")
             resumo_season: Dict[str, Any] = {}
             eventos_season = _coletar_paginado(
                 EVENTS_ENDPOINT,
@@ -480,13 +480,13 @@ def buscar_todos_eventos_copa_com_resumo(
             )
             resumo["season_count"] = resumo_season.get("count")
             resumo["season_baixados"] = resumo_season.get("baixados", len(eventos_season))
-            print(f"[BSD] {len(eventos_season)} eventos retornados pela season.")
+            settings.debug_log(f"[BSD] {len(eventos_season)} eventos retornados pela season.")
         else:
-            print("[BSD] Season selecionada sem id valido; ativando fallback por intervalo de datas.")
+            settings.debug_log("[BSD] Season selecionada sem id valido; ativando fallback por intervalo de datas.")
     else:
-        print("[BSD] Nenhuma season valida encontrada; ativando fallback por intervalo de datas.")
+        settings.debug_log("[BSD] Nenhuma season valida encontrada; ativando fallback por intervalo de datas.")
 
-    print(
+    settings.debug_log(
         f"Fallback para intervalo {WORLD_CUP_FALLBACK_DATE_FROM} até {WORLD_CUP_FALLBACK_DATE_TO}"
     )
     resumo_fallback: Dict[str, Any] = {}
@@ -504,16 +504,16 @@ def buscar_todos_eventos_copa_com_resumo(
     )
     resumo["fallback_count"] = resumo_fallback.get("count")
     resumo["fallback_baixados"] = resumo_fallback.get("baixados", len(eventos_fallback))
-    print(f"[BSD] {len(eventos_fallback)} eventos retornados no fallback.")
+    settings.debug_log(f"[BSD] {len(eventos_fallback)} eventos retornados no fallback.")
 
     if not eventos_season and not eventos_fallback:
-        print("Nenhum jogo retornado pela API.")
+        settings.debug_log("Nenhum jogo retornado pela API.")
         resumo["total_baixados"] = 0
         return [], resumo
 
     eventos = _unir_eventos(eventos_season, eventos_fallback)
     resumo["total_baixados"] = len(eventos)
-    print(f"[BSD] {len(eventos)} eventos consolidados apos merge de season e fallback.")
+    settings.debug_log(f"[BSD] {len(eventos)} eventos consolidados apos merge de season e fallback.")
     return eventos, resumo
 
 
@@ -760,7 +760,7 @@ def buscar_jogos_ao_vivo(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]
     )
 
     if not eventos:
-        print("[BSD] Nenhum evento ao vivo retornado por live league=27.")
+        settings.debug_log("[BSD] Nenhum evento ao vivo retornado por live league=27.")
         return []
 
     status_validos = {
@@ -782,9 +782,9 @@ def buscar_jogos_ao_vivo(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]
             continue
         jogos.append(_normalizar_evento_ao_vivo(evento))
 
-    print(f"[BSD] {len(jogos)} jogos ao vivo da Copa encontrados em live league=27.")
+    settings.debug_log(f"[BSD] {len(jogos)} jogos ao vivo da Copa encontrados em live league=27.")
     if not jogos:
-        print("[BSD] Nenhum jogo ao vivo da Copa neste momento.")
+        settings.debug_log("[BSD] Nenhum jogo ao vivo da Copa neste momento.")
     return jogos
 
 
@@ -798,7 +798,7 @@ def buscar_jogos_ao_vivo_teste(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str,
     )
 
     if not eventos:
-        print("[BSD] Nenhum evento ao vivo retornado no modo teste.")
+        settings.debug_log("[BSD] Nenhum evento ao vivo retornado no modo teste.")
         return []
 
     status_relevantes = {
@@ -820,9 +820,9 @@ def buscar_jogos_ao_vivo_teste(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str,
             continue
         jogos.append(_normalizar_evento_ao_vivo(evento))
 
-    print(f"[BSD] {len(jogos)} jogos ao vivo encontrados em modo teste.")
+    settings.debug_log(f"[BSD] {len(jogos)} jogos ao vivo encontrados em modo teste.")
     if not jogos:
-        print("[BSD] Nenhum jogo relevante em modo teste neste momento.")
+        settings.debug_log("[BSD] Nenhum jogo relevante em modo teste neste momento.")
     return jogos
 
 

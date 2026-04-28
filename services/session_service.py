@@ -18,9 +18,25 @@ from database import (
 from utils.datetime_utils import parse_iso_datetime
 from utils.session_cookie import definir_cookie_sessao, limpar_cookie_sessao, ler_cookie_sessao
 
+SESSION_RENEW_THROTTLE_SECONDS = 300
+
 
 def _agora_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _deve_renovar_sessao() -> bool:
+    agora = _agora_utc()
+    ultima = st.session_state.get("last_session_renewal_at")
+    if not isinstance(ultima, datetime):
+        return True
+    if ultima.tzinfo is None:
+        ultima = ultima.replace(tzinfo=timezone.utc)
+    return (agora - ultima.astimezone(timezone.utc)).total_seconds() >= SESSION_RENEW_THROTTLE_SECONDS
+
+
+def _marcar_renovacao_sessao() -> None:
+    st.session_state["last_session_renewal_at"] = _agora_utc()
 
 
 def _sessao_expirada(sessao: dict[str, object], agora: Optional[datetime] = None) -> bool:
@@ -59,6 +75,7 @@ def criar_sessao_autenticada(usuario: Usuario) -> str:
     token = str(sessao["session_token"])
     definir_cookie_sessao(token)
     _aplicar_estado_autenticado(usuario, token)
+    _marcar_renovacao_sessao()
     return token
 
 
@@ -79,12 +96,13 @@ def manter_sessao_por_cookie_ou_state() -> bool:
             _limpar_estado_sessao("Sessão expirada por inatividade. Faça login novamente.")
             return False
 
-        if renovar_sessao_por_atividade(token_state) is None:
-            limpar_cookie_sessao()
-            _limpar_estado_sessao("Sessão expirada por inatividade. Faça login novamente.")
-            return False
-
-        definir_cookie_sessao(token_state)
+        if _deve_renovar_sessao():
+            if renovar_sessao_por_atividade(token_state) is None:
+                limpar_cookie_sessao()
+                _limpar_estado_sessao("Sessão expirada por inatividade. Faça login novamente.")
+                return False
+            definir_cookie_sessao(token_state)
+            _marcar_renovacao_sessao()
         st.session_state.auth_flash_message = ""
         return True
 
@@ -121,6 +139,7 @@ def manter_sessao_por_cookie_ou_state() -> bool:
 
     definir_cookie_sessao(cookie_token)
     _aplicar_estado_autenticado(usuario, cookie_token)
+    _marcar_renovacao_sessao()
     return True
 
 

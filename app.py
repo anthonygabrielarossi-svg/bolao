@@ -9,6 +9,7 @@ from __future__ import annotations
 import streamlit as st
 import time
 
+from settings import DEBUG
 from database import (
     DatabaseConfigurationError,
     autenticar_usuario,
@@ -147,8 +148,8 @@ def render_auth_screen() -> None:
 def render_menu_principal() -> None:
     """Renderiza a navegacao depois do login."""
     st.sidebar.title(f"Bem-vindo, {st.session_state.user_name}")
-    st.sidebar.caption(f"Banco conectado: {get_database_kind()}")
     if st.session_state.is_admin:
+        st.sidebar.caption(f"Banco conectado: {get_database_kind()}")
         st.sidebar.caption("Perfil: administrador")
         if st.sidebar.button("Testar conexao banco"):
             try:
@@ -216,11 +217,13 @@ def main() -> None:
     inicializar_banco()
     iniciar_session_state()
 
-    if manter_sessao_por_cookie_ou_state():
+    logado = manter_sessao_por_cookie_ou_state()
+    if logado:
         render_menu_principal()
     else:
         render_auth_screen()
-    st.caption(f"Tempo de carregamento: {time.perf_counter() - inicio:.2f}s")
+    if DEBUG or bool(st.session_state.get("is_admin")):
+        st.caption(f"Tempo de carregamento: {time.perf_counter() - inicio:.2f}s")
 
 
 if __name__ == "__main__":

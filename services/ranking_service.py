@@ -13,10 +13,13 @@ from database import (
     COMPETICAO_PADRAO,
     PontuacaoUsuario,
     atualizar_pontuacao_usuario,
+    atualizar_pontuacoes_usuarios_em_lote,
     carregar_palpites_especiais,
     carregar_resultados_oficiais,
     listar_jogos,
     listar_palpites_partidas_usuario,
+    listar_todos_palpites_especiais,
+    listar_todos_palpites_partidas,
     listar_usuarios,
     listar_usuarios_ranking,
     usuario_eh_admin,
@@ -129,6 +132,13 @@ def recalcular_ranking_automaticamente(executed_by_user_id: Optional[int] = None
     usuarios = listar_usuarios()
     usuarios_por_id = {int(usuario.id): usuario for usuario in usuarios if usuario.id is not None}
     resultados_oficiais = carregar_resultados_oficiais()
+    palpites_partidas_por_usuario: Dict[int, Dict[int, object]] = {}
+    for palpite in listar_todos_palpites_partidas():
+        palpites_partidas_por_usuario.setdefault(int(palpite.user_id), {})[int(palpite.match_id)] = palpite
+    palpites_especiais_por_usuario = {
+        int(palpite.user_id): palpite
+        for palpite in listar_todos_palpites_especiais()
+    }
     jogos_finalizados = {
         jogo.id: jogo
         for jogo in listar_jogos()
@@ -141,15 +151,45 @@ def recalcular_ranking_automaticamente(executed_by_user_id: Optional[int] = None
     for usuario in usuarios:
         if usuario.id is None:
             continue
+        user_id = int(usuario.id)
+        palpites_partidas = palpites_partidas_por_usuario.get(user_id, {})
+        palpites_especiais = palpites_especiais_por_usuario.get(user_id)
+
+        pontos_partidas = 0
+        for match_id, palpite in palpites_partidas.items():
+            jogo = jogos_finalizados.get(match_id)
+            if not jogo:
+                continue
+            pontos_partidas += pontuar_partida(
+                palpite.palpite_a,
+                palpite.palpite_b,
+                int(jogo.placar_a),
+                int(jogo.placar_b),
+            )
+
+        pontos_especiais = 0
+        if palpites_especiais:
+            pontos_especiais += pontuar_palpite_especial("campeao", palpites_especiais.campeao, resultados_oficiais.campeao)
+            pontos_especiais += pontuar_palpite_especial("vice", palpites_especiais.vice, resultados_oficiais.vice)
+            pontos_especiais += pontuar_palpite_especial("artilheiro", palpites_especiais.artilheiro, resultados_oficiais.artilheiro)
+            pontos_especiais += pontuar_palpite_especial("melhor_jogador", palpites_especiais.melhor_jogador, resultados_oficiais.melhor_jogador)
+            pontos_especiais += pontuar_palpite_especial("primeiro_grupo_a", palpites_especiais.primeiro_grupo_a, resultados_oficiais.primeiro_grupo_a)
+            pontos_especiais += pontuar_palpite_especial("segundo_grupo_a", palpites_especiais.segundo_grupo_a, resultados_oficiais.segundo_grupo_a)
+
+        pontuacao_total = pontos_partidas + pontos_especiais
         ranking_calculado.append(
-            calcular_pontuacao_usuario(
-                usuario.id,
-                usuarios_por_id=usuarios_por_id,
-                jogos_finalizados=jogos_finalizados,
-                resultados_oficiais=resultados_oficiais,
+            PontuacaoUsuario(
+                user_id=user_id,
+                nome=usuarios_por_id[user_id].nome,
+                pontos_partidas=pontos_partidas,
+                pontos_especiais=pontos_especiais,
+                pontuacao_total=pontuacao_total,
             )
         )
 
+    atualizar_pontuacoes_usuarios_em_lote(
+        {item.user_id: item.pontuacao_total for item in ranking_calculado}
+    )
     ranking_calculado.sort(key=lambda item: (-item.pontuacao_total, item.nome.lower()))
     return ranking_calculado
 

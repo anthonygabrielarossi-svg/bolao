@@ -75,15 +75,9 @@ def load_env_file(path: Optional[Path] = None) -> None:
 
 def get_api_key() -> str:
     """Retorna a chave fixa da API da sports.bzzoiro.com."""
-    global _API_KEY_LOGGED
-
     token = os.getenv("SPORTS_API_KEY", "").strip()
     if not token:
         raise RuntimeError("Variável de ambiente SPORTS_API_KEY não definida")
-
-    if not _API_KEY_LOGGED:
-        print("[BSD] API KEY carregada do ambiente")
-        _API_KEY_LOGGED = True
 
     return token
 
@@ -91,11 +85,15 @@ def get_api_key() -> str:
 def get_headers() -> dict[str, str]:
     """Monta os headers padronizados para a API BSD."""
     token = get_api_key()
-    print("[BSD] API chamada com autenticação OK")
     return {
         "Authorization": f"Token {token}",
         "Accept": "application/json",
     }
+
+
+def debug_log(msg: str) -> None:
+    if DEBUG:
+        print(msg)
 
 
 load_env_file()
@@ -104,4 +102,5 @@ load_env_file()
 SESSION_IDLE_TIMEOUT_MINUTES = _get_int_env("SESSION_IDLE_TIMEOUT_MINUTES", 15)
 SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "bolao_session_token").strip() or "bolao_session_token"
 SESSION_COOKIE_MAX_AGE_DAYS = _get_int_env("SESSION_COOKIE_MAX_AGE_DAYS", 30)
+DEBUG = _get_bool_env("DEBUG", False)
 TEST_MODE_AO_VIVO = _get_bool_env("TEST_MODE_AO_VIVO", False)
