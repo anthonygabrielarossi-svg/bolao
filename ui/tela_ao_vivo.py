@@ -32,7 +32,7 @@ def _aplicar_auto_refresh(interval_ms: int = 30_000) -> None:
         st_autorefresh(interval=interval_ms, key="ao_vivo_autorefresh")
         return
 
-    st.caption("Atualização automática indisponível. Use o botão Atualizar agora.")
+    st.caption("Atualizacao automatica indisponivel neste ambiente.")
 
 
 def _html_escape(texto: Any) -> str:
@@ -278,10 +278,6 @@ def render_tela_ao_vivo() -> None:
         st.info("TEST_MODE_AO_VIVO ativo: buscando jogos ao vivo gerais para teste controlado.")
     else:
         st.caption("Modo oficial da Copa do Mundo: filtra apenas a league=27.")
-
-    if st.button("Atualizar agora", use_container_width=True):
-        buscar_jogos_ao_vivo_cache.clear()
-        st.rerun()
 
     st.caption("Atualizacao automatica a cada 30 segundos.")
 
