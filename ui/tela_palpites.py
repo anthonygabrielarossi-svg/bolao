@@ -653,11 +653,11 @@ def _render_fase_simples(user_id: int, fase: str, jogos: List, palpites_partidas
             )
 
 
-def _carregar_classificados_salvos(palpites_especiais) -> Dict[str, Dict[str, str]]:
+def _carregar_classificados_salvos(palpites_especiais) -> Dict[str, Dict[str, Any]]:
     if not palpites_especiais:
         return {}
 
-    classificados: Dict[str, Dict[str, str]] = {}
+    classificados: Dict[str, Dict[str, Any]] = {}
     bruto = getattr(palpites_especiais, "classificados_grupos", "") or ""
     if bruto:
         try:
@@ -670,12 +670,16 @@ def _carregar_classificados_salvos(palpites_especiais) -> Dict[str, Dict[str, st
                     classificados[str(grupo)] = {
                         "primeiro": str(valores.get("primeiro") or ""),
                         "segundo": str(valores.get("segundo") or ""),
+                        "terceiro": str(valores.get("terceiro") or ""),
+                        "terceiro_classificado": bool(valores.get("terceiro_classificado", False)),
                     }
 
     if "Grupo A" not in classificados:
         classificados["Grupo A"] = {
             "primeiro": getattr(palpites_especiais, "primeiro_grupo_a", "") or "",
             "segundo": getattr(palpites_especiais, "segundo_grupo_a", "") or "",
+            "terceiro": "",
+            "terceiro_classificado": False,
         }
 
     return classificados
@@ -749,18 +753,23 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
 
         st.markdown("#### Classificados por Grupo")
         tabs = st.tabs(grupos_copa)
-        classificados_por_grupo: Dict[str, Dict[str, str]] = {}
+        classificados_por_grupo: Dict[str, Dict[str, Any]] = {}
 
         for tab, grupo in zip(tabs, grupos_copa):
             with tab:
                 times_grupo = times_por_grupo.get(grupo, [])
                 if not times_grupo:
                     st.info("Nenhuma seleção encontrada para este grupo.")
-                    classificados_por_grupo[grupo] = {"primeiro": "", "segundo": ""}
+                    classificados_por_grupo[grupo] = {
+                        "primeiro": "",
+                        "segundo": "",
+                        "terceiro": "",
+                        "terceiro_classificado": False,
+                    }
                     continue
 
                 salvos_grupo = classificados_salvos.get(grupo, {})
-                col_primeiro, col_segundo = st.columns(2)
+                col_primeiro, col_segundo, col_terceiro = st.columns(3)
                 with col_primeiro:
                     primeiro = _render_select_time(
                         "1º colocado",
@@ -778,19 +787,63 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
                         f"classificado_segundo_{grupo.replace(' ', '_').lower()}",
                     )
 
-                classificados_por_grupo[grupo] = {"primeiro": primeiro, "segundo": segundo}
+                opcoes_terceiro = [time for time in times_grupo if time not in {primeiro, segundo}]
+                with col_terceiro:
+                    terceiro = _render_select_time(
+                        "3º colocado",
+                        opcoes_terceiro,
+                        salvos_grupo.get("terceiro", ""),
+                        f"classificado_terceiro_{grupo.replace(' ', '_').lower()}",
+                    )
 
-        if st.button("Salvar palpites especiais", key="salvar_palpites_especiais"):
+                terceiro_classificado = st.checkbox(
+                    "3º colocado classificado",
+                    value=bool(salvos_grupo.get("terceiro_classificado", False)),
+                    key=f"terceiro_classificado_{grupo.replace(' ', '_').lower()}",
+                    disabled=not terceiro,
+                )
+
+                classificados_por_grupo[grupo] = {
+                    "primeiro": primeiro,
+                    "segundo": segundo,
+                    "terceiro": terceiro,
+                    "terceiro_classificado": bool(terceiro_classificado and terceiro),
+                }
+
+        terceiros_classificados = sum(
+            1 for valores in classificados_por_grupo.values() if valores.get("terceiro_classificado")
+        )
+        st.caption(f"Terceiros classificados: {terceiros_classificados} / 8")
+        if terceiros_classificados < 8:
+            st.warning("Selecione exatamente 8 terceiros classificados.")
+        elif terceiros_classificados == 8:
+            st.success("8 terceiros classificados selecionados.")
+        else:
+            st.error("Somente 8 terceiros colocados podem se classificar.")
+
+        if st.button(
+            "Salvar palpites especiais",
+            key="salvar_palpites_especiais",
+            disabled=terceiros_classificados > 8,
+        ):
             if campeao and vice and campeao == vice:
                 st.error("Campeão e vice não podem ser a mesma seleção.")
                 return
 
             for grupo, valores in classificados_por_grupo.items():
-                primeiro = valores.get("primeiro", "")
-                segundo = valores.get("segundo", "")
-                if primeiro and segundo and primeiro == segundo:
-                    st.error(f"{grupo}: 1º e 2º colocados não podem ser a mesma seleção.")
+                posicoes = [
+                    valores.get("primeiro", ""),
+                    valores.get("segundo", ""),
+                    valores.get("terceiro", ""),
+                ]
+                preenchidos = [time for time in posicoes if time]
+                if len(preenchidos) != len(set(preenchidos)):
+                    st.error(f"{grupo}: 1º, 2º e 3º colocados não podem repetir seleção.")
                     return
+
+            if terceiros_classificados != 8:
+                st.error("Você deve selecionar exatamente 8 terceiros colocados classificados.")
+                return
 
             grupo_a = classificados_por_grupo.get("Grupo A", {})
             salvar_palpites_especiais(
