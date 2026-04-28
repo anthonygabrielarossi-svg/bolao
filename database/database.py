@@ -1,4 +1,4 @@
-"""Camada de persistencia SQLite do bolao da Copa do Mundo.
+"""Camada de persistencia do bolao da Copa do Mundo.
 
 Este modulo concentra conexao, migracao de schema, autenticao segura e CRUD
 principal do projeto.
@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +19,16 @@ from settings import SESSION_IDLE_TIMEOUT_MINUTES
 from utils.datetime_utils import bloquear_palpite_para_jogo, parse_iso_datetime
 from utils.team_assets import get_team_logo_url
 
+from .connection import (
+    DEFAULT_SQLITE_PATH,
+    DatabaseConfigurationError,
+    DatabaseError,
+    DatabaseConnection,
+    DatabaseIntegrityError,
+    get_database_kind,
+    get_connection,
+    is_streamlit_cloud,
+)
 from .models import (
     ClassificacaoGrupo,
     Jogo,
@@ -31,8 +40,7 @@ from .models import (
 )
 
 
-_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "bolao_copa.db"
-DB_PATH = Path(os.getenv("DB_PATH") or str(_DEFAULT_DB_PATH))
+DB_PATH = Path(os.getenv("DB_PATH") or str(DEFAULT_SQLITE_PATH))
 COMPETICAO_PADRAO = "Copa do Mundo"
 FASE_NAO_MAPEADA = "Não mapeada"
 FASES_VALIDAS_COPA = (
@@ -48,14 +56,6 @@ FASES_VALIDAS_COPA = (
 GRUPOS_VALIDOS_COPA = tuple(f"Grupo {chr(ord('A') + indice)}" for indice in range(12))
 _GRUPOS_VALIDOS_COPA_NORMALIZADOS = {grupo.upper(): grupo for grupo in GRUPOS_VALIDOS_COPA}
 _PLACEHOLDER_BRACKET_TOKEN_RE = re.compile(r"^(?:[WL]\d+|\d+[A-Z]|3[A-L])(?:/(?:[WL]\d+|\d+[A-Z]|3[A-L]))*$", re.IGNORECASE)
-
-
-def get_connection() -> sqlite3.Connection:
-    """Abre uma conexao SQLite com suporte a foreign keys."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
 
 
 def hash_password(password: str) -> str:
@@ -90,7 +90,7 @@ def verify_password(password: str, hashed: str) -> bool:
     return _legacy_sha256_matches(password, hashed)
 
 
-def _row_to_usuario(row: sqlite3.Row) -> Usuario:
+def _row_to_usuario(row: object) -> Usuario:
     return Usuario(
         id=row["id"],
         nome=row["nome"],
@@ -100,7 +100,7 @@ def _row_to_usuario(row: sqlite3.Row) -> Usuario:
     )
 
 
-def _row_get(row: sqlite3.Row, *keys: str, default: Optional[object] = None) -> Optional[object]:
+def _row_get(row: object, *keys: str, default: Optional[object] = None) -> Optional[object]:
     available = set(row.keys())
     for key in keys:
         if key in available:
@@ -110,7 +110,7 @@ def _row_get(row: sqlite3.Row, *keys: str, default: Optional[object] = None) -> 
     return default
 
 
-def _row_to_jogo(row: sqlite3.Row) -> Jogo:
+def _row_to_jogo(row: object) -> Jogo:
     time_casa = _row_get(row, "time_casa", "time_a", default="")
     time_fora = _row_get(row, "time_fora", "time_b", default="")
     gols_casa = _row_get(row, "gols_casa", "placar_a")
@@ -139,7 +139,7 @@ def _row_to_jogo(row: sqlite3.Row) -> Jogo:
     )
 
 
-def _row_to_palpite_partida(row: sqlite3.Row) -> PalpitePartida:
+def _row_to_palpite_partida(row: object) -> PalpitePartida:
     return PalpitePartida(
         id=row["id"],
         user_id=row["user_id"],
@@ -149,7 +149,7 @@ def _row_to_palpite_partida(row: sqlite3.Row) -> PalpitePartida:
     )
 
 
-def _row_to_palpite_especial(row: sqlite3.Row) -> PalpiteEspecial:
+def _row_to_palpite_especial(row: object) -> PalpiteEspecial:
     return PalpiteEspecial(
         id=row["id"],
         user_id=row["user_id"],
@@ -162,7 +162,7 @@ def _row_to_palpite_especial(row: sqlite3.Row) -> PalpiteEspecial:
     )
 
 
-def _row_to_classificacao(row: sqlite3.Row) -> ClassificacaoGrupo:
+def _row_to_classificacao(row: object) -> ClassificacaoGrupo:
     return ClassificacaoGrupo(
         id=row["id"],
         grupo=row["grupo"],
@@ -179,7 +179,7 @@ def _row_to_classificacao(row: sqlite3.Row) -> ClassificacaoGrupo:
     )
 
 
-def _row_to_resultado_oficial(row: sqlite3.Row) -> ResultadoOficial:
+def _row_to_resultado_oficial(row: object) -> ResultadoOficial:
     return ResultadoOficial(
         id=row["id"],
         campeao=row["campeao"] or "",
@@ -191,7 +191,7 @@ def _row_to_resultado_oficial(row: sqlite3.Row) -> ResultadoOficial:
     )
 
 
-def _row_to_sessao(row: sqlite3.Row) -> Dict[str, Optional[object]]:
+def _row_to_sessao(row: object) -> Dict[str, Optional[object]]:
     return {
         "id": row["id"],
         "session_token": row["session_token"],
@@ -207,7 +207,7 @@ def _agora_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _sessao_expirada_row(row: sqlite3.Row, agora: Optional[datetime] = None) -> bool:
+def _sessao_expirada_row(row: object, agora: Optional[datetime] = None) -> bool:
     expires_at = parse_iso_datetime(_row_get(row, "expires_at"))
     if expires_at is None:
         return True
@@ -221,11 +221,11 @@ def _sessao_expirada_row(row: sqlite3.Row, agora: Optional[datetime] = None) -> 
     return referencia >= expires_at.astimezone(timezone.utc)
 
 
-def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_sql: str) -> None:
-    existing = {
-        row["name"]
-        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-    }
+def _ensure_column(conn: DatabaseConnection, table: str, column: str, column_sql: str) -> None:
+    if not conn.table_exists(table):
+        return
+
+    existing = conn.table_columns(table)
     if column not in existing:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_sql}")
 
@@ -310,7 +310,7 @@ def validar_competicao_copa(_: Optional[str] = None) -> str:
     return COMPETICAO_PADRAO
 
 
-def _existing_game_id(conn: sqlite3.Connection, jogo: Jogo) -> Optional[int]:
+def _existing_game_id(conn: DatabaseConnection, jogo: Jogo) -> Optional[int]:
     if jogo.api_id is not None:
         row = conn.execute(
             "SELECT id FROM Jogos WHERE api_id = ?",
@@ -346,7 +346,7 @@ def _existing_game_id(conn: sqlite3.Connection, jogo: Jogo) -> Optional[int]:
     return None
 
 
-def _existing_jogo_row(conn: sqlite3.Connection, jogo_id: int) -> Optional[sqlite3.Row]:
+def _existing_jogo_row(conn: DatabaseConnection, jogo_id: int) -> Optional[object]:
     return conn.execute(
         """
         SELECT id, api_id, competicao, time_a, time_b, placar_a, placar_b, finalizado,
@@ -364,8 +364,8 @@ def _existing_jogo_row(conn: sqlite3.Connection, jogo_id: int) -> Optional[sqlit
 def init_db() -> None:
     """Cria tabelas e executa migracoes leves de schema."""
     with get_connection() as conn:
-        conn.executescript(
-            """
+        if conn.is_sqlite:
+            schema_sql = """
             CREATE TABLE IF NOT EXISTS Usuarios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nome TEXT NOT NULL UNIQUE,
@@ -461,15 +461,124 @@ def init_db() -> None:
                 atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """
-        )
+        else:
+            schema_sql = """
+            CREATE TABLE IF NOT EXISTS Usuarios (
+                id SERIAL PRIMARY KEY,
+                nome TEXT NOT NULL UNIQUE,
+                senha TEXT NOT NULL,
+                pontuacao_total INTEGER NOT NULL DEFAULT 0,
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE
+            );
+
+            CREATE TABLE IF NOT EXISTS Sessoes (
+                id SERIAL PRIMARY KEY,
+                session_token TEXT NOT NULL UNIQUE,
+                user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                last_activity_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked BOOLEAN NOT NULL DEFAULT FALSE,
+                FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS Jogos (
+                id SERIAL PRIMARY KEY,
+                api_id INTEGER,
+                competicao TEXT NOT NULL DEFAULT 'Copa do Mundo',
+                time_a TEXT NOT NULL,
+                time_b TEXT NOT NULL,
+                placar_a INTEGER,
+                placar_b INTEGER,
+                finalizado BOOLEAN NOT NULL DEFAULT FALSE,
+                fase TEXT NOT NULL DEFAULT 'Fase de Grupos',
+                grupo TEXT,
+                data_jogo TEXT,
+                status TEXT NOT NULL DEFAULT 'agendado',
+                proximo_jogo_id INTEGER,
+                estadio TEXT,
+                time_casa TEXT,
+                time_fora TEXT,
+                home_team_id INTEGER,
+                away_team_id INTEGER,
+                home_team_logo_url TEXT,
+                away_team_logo_url TEXT,
+                gols_casa INTEGER,
+                gols_fora INTEGER,
+                round_number INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS Palpites_Partidas (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                match_id INTEGER NOT NULL,
+                palpite_a INTEGER NOT NULL,
+                palpite_b INTEGER NOT NULL,
+                UNIQUE (user_id, match_id),
+                FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE,
+                FOREIGN KEY (match_id) REFERENCES Jogos (id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS Palpites_Especiais (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL UNIQUE,
+                campeao TEXT,
+                vice TEXT,
+                artilheiro TEXT,
+                melhor_jogador TEXT,
+                primeiro_grupo_a TEXT,
+                segundo_grupo_a TEXT,
+                FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS Classificacao_Grupos (
+                id SERIAL PRIMARY KEY,
+                grupo TEXT NOT NULL,
+                time_nome TEXT NOT NULL,
+                posicao INTEGER NOT NULL DEFAULT 0,
+                pontos INTEGER NOT NULL DEFAULT 0,
+                jogos INTEGER NOT NULL DEFAULT 0,
+                vitorias INTEGER NOT NULL DEFAULT 0,
+                empates INTEGER NOT NULL DEFAULT 0,
+                derrotas INTEGER NOT NULL DEFAULT 0,
+                gols_pro INTEGER NOT NULL DEFAULT 0,
+                gols_contra INTEGER NOT NULL DEFAULT 0,
+                saldo_gols INTEGER NOT NULL DEFAULT 0,
+                atualizado_em TEXT NOT NULL,
+                UNIQUE (grupo, time_nome)
+            );
+
+            CREATE TABLE IF NOT EXISTS Resultados_Oficiais (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                campeao TEXT,
+                vice TEXT,
+                artilheiro TEXT,
+                melhor_jogador TEXT,
+                primeiro_grupo_a TEXT,
+                segundo_grupo_a TEXT,
+                atualizado_em TEXT NOT NULL
+            );
+            """
+
+        conn.executescript(schema_sql)
 
         # Migra a tabela Jogos para as colunas novas sem quebrar a base antiga.
         _ensure_column(conn, "Usuarios", "pontuacao_total", "INTEGER NOT NULL DEFAULT 0")
-        _ensure_column(conn, "Usuarios", "is_admin", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(
+            conn,
+            "Usuarios",
+            "is_admin",
+            "INTEGER NOT NULL DEFAULT 0" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE",
+        )
         _ensure_column(conn, "Sessoes", "created_at", "TEXT")
         _ensure_column(conn, "Sessoes", "last_activity_at", "TEXT")
         _ensure_column(conn, "Sessoes", "expires_at", "TEXT")
-        _ensure_column(conn, "Sessoes", "revoked", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(
+            conn,
+            "Sessoes",
+            "revoked",
+            "INTEGER NOT NULL DEFAULT 0" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE",
+        )
         _ensure_column(conn, "Jogos", "api_id", "INTEGER")
         _ensure_column(conn, "Jogos", "competicao", "TEXT NOT NULL DEFAULT 'Copa do Mundo'")
         _ensure_column(conn, "Jogos", "fase", "TEXT NOT NULL DEFAULT 'Fase de Grupos'")
@@ -496,10 +605,11 @@ def init_db() -> None:
         )
 
         # Preenche os novos campos com os valores legados quando existirem.
+        is_admin_default = "0" if conn.is_sqlite else "FALSE"
         conn.execute(
-            """
+            f"""
             UPDATE Usuarios
-            SET is_admin = COALESCE(is_admin, 0),
+            SET is_admin = COALESCE(is_admin, {is_admin_default}),
                 pontuacao_total = COALESCE(pontuacao_total, 0)
             """
         )
@@ -530,7 +640,7 @@ def init_db() -> None:
             """
         )
 
-        conn.execute("INSERT OR IGNORE INTO Resultados_Oficiais (id) VALUES (1)")
+        conn.execute("INSERT INTO Resultados_Oficiais (id, atualizado_em) VALUES (1, ?) ON CONFLICT(id) DO NOTHING", (_agora_utc().isoformat(),))
 
         conn.commit()
 
@@ -545,11 +655,11 @@ def cadastrar_usuario(nome: str, senha: str, is_admin: bool = False) -> Tuple[bo
         with get_connection() as conn:
             conn.execute(
                 "INSERT INTO Usuarios (nome, senha, is_admin) VALUES (?, ?, ?)",
-                (nome, hash_password(senha), 1 if is_admin else 0),
+                (nome, hash_password(senha), bool(is_admin)),
             )
             conn.commit()
         return True, "Usuario cadastrado com sucesso."
-    except sqlite3.IntegrityError:
+    except DatabaseIntegrityError:
         return False, "Esse nome de usuario ja existe."
 
 
@@ -616,7 +726,7 @@ def criar_sessao_usuario(user_id: int, session_token: Optional[str] = None) -> D
             """
             INSERT INTO Sessoes (
                 session_token, user_id, created_at, last_activity_at, expires_at, revoked
-            ) VALUES (?, ?, ?, ?, ?, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_token)
             DO UPDATE SET
                 user_id = excluded.user_id,
@@ -631,6 +741,7 @@ def criar_sessao_usuario(user_id: int, session_token: Optional[str] = None) -> D
                 created_at,
                 created_at,
                 expires_at_text,
+                False,
             ),
         )
         conn.commit()
@@ -848,7 +959,7 @@ def buscar_jogo_por_api_id(api_id: int) -> Optional[Jogo]:
     return _row_to_jogo(row) if row else None
 
 
-def salvar_ou_atualizar_jogo(jogo: Jogo, connection: Optional[sqlite3.Connection] = None) -> int:
+def salvar_ou_atualizar_jogo(jogo: Jogo, connection: Optional[DatabaseConnection] = None) -> int:
     """Insere ou atualiza um jogo de forma consistente."""
     conn = connection or get_connection()
     owns_connection = connection is None
@@ -893,7 +1004,7 @@ def salvar_ou_atualizar_jogo(jogo: Jogo, connection: Optional[sqlite3.Connection
         if grupo is None:
             grupo = validar_grupo_copa(existing.get("grupo"))
         status = _merge_text(jogo.status, "status", "agendado")
-        finalizado = 1 if bool(jogo.finalizado) else 0
+        finalizado = bool(jogo.finalizado)
         api_id = jogo.api_id if jogo.api_id is not None else existing.get("api_id")
         round_number = jogo.round_number if jogo.round_number is not None else existing.get("round_number")
         data_jogo = jogo.data_jogo or existing.get("data_jogo")
@@ -945,6 +1056,7 @@ def salvar_ou_atualizar_jogo(jogo: Jogo, connection: Optional[sqlite3.Connection
                     time_casa, time_fora, home_team_id, away_team_id,
                     home_team_logo_url, away_team_logo_url, gols_casa, gols_fora, estadio
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
                 """,
                 params,
             )
@@ -957,12 +1069,12 @@ def salvar_ou_atualizar_jogo(jogo: Jogo, connection: Optional[sqlite3.Connection
             conn.close()
 
 
-def salvar_jogo(jogo: Jogo, connection: Optional[sqlite3.Connection] = None) -> int:
+def salvar_jogo(jogo: Jogo, connection: Optional[DatabaseConnection] = None) -> int:
     """Compatibilidade com o nome antigo do salvamento."""
     return salvar_ou_atualizar_jogo(jogo, connection=connection)
 
 
-def salvar_jogos_em_lote(jogos: Sequence[Jogo], connection: Optional[sqlite3.Connection] = None) -> List[int]:
+def salvar_jogos_em_lote(jogos: Sequence[Jogo], connection: Optional[DatabaseConnection] = None) -> List[int]:
     ids: List[int] = []
     conn = connection or get_connection()
     owns_connection = connection is None
@@ -998,7 +1110,7 @@ def atualizar_jogo_resultado(
                 int(placar_b),
                 int(placar_a),
                 int(placar_b),
-                1 if finalizado else 0,
+                bool(finalizado),
                 status,
                 int(jogo_id),
             ),
@@ -1140,6 +1252,7 @@ def salvar_resultados_oficiais(
     if executed_by_user_id is not None and not usuario_eh_admin(executed_by_user_id):
         raise PermissionError("Apenas administradores podem editar o gabarito oficial.")
 
+    atualizado_em = _agora_utc().isoformat()
     with get_connection() as conn:
         conn.execute(
             """
@@ -1147,7 +1260,7 @@ def salvar_resultados_oficiais(
                 id, campeao, vice, artilheiro, melhor_jogador,
                 primeiro_grupo_a, segundo_grupo_a, atualizado_em
             )
-            VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id)
             DO UPDATE SET
                 campeao = excluded.campeao,
@@ -1156,7 +1269,7 @@ def salvar_resultados_oficiais(
                 melhor_jogador = excluded.melhor_jogador,
                 primeiro_grupo_a = excluded.primeiro_grupo_a,
                 segundo_grupo_a = excluded.segundo_grupo_a,
-                atualizado_em = CURRENT_TIMESTAMP
+                atualizado_em = excluded.atualizado_em
             """,
             (
                 campeao.strip(),
@@ -1165,6 +1278,7 @@ def salvar_resultados_oficiais(
                 melhor_jogador.strip(),
                 primeiro_grupo_a.strip(),
                 segundo_grupo_a.strip(),
+                atualizado_em,
             ),
         )
         conn.commit()
@@ -1190,7 +1304,11 @@ def limpar_dados_invalidos(preservar_usuarios: bool = True) -> Dict[str, int]:
         else:
             conn.execute("UPDATE Usuarios SET pontuacao_total = 0")
 
-        conn.execute("INSERT OR IGNORE INTO Resultados_Oficiais (id) VALUES (1)")
+        atualizado_em = _agora_utc().isoformat()
+        conn.execute(
+            "INSERT INTO Resultados_Oficiais (id, atualizado_em) VALUES (1, ?) ON CONFLICT(id) DO NOTHING",
+            (atualizado_em,),
+        )
         conn.execute(
             """
             UPDATE Resultados_Oficiais
@@ -1200,13 +1318,15 @@ def limpar_dados_invalidos(preservar_usuarios: bool = True) -> Dict[str, int]:
                 melhor_jogador = '',
                 primeiro_grupo_a = '',
                 segundo_grupo_a = '',
-                atualizado_em = CURRENT_TIMESTAMP
+                atualizado_em = ?
             WHERE id = 1
-            """
+            """,
+            (atualizado_em,),
         )
-        conn.execute(
-            "DELETE FROM sqlite_sequence WHERE name IN ('Jogos', 'Palpites_Partidas', 'Palpites_Especiais', 'Classificacao_Grupos', 'Usuarios')"
-        )
+        if conn.is_sqlite:
+            conn.execute(
+                "DELETE FROM sqlite_sequence WHERE name IN ('Jogos', 'Palpites_Partidas', 'Palpites_Especiais', 'Classificacao_Grupos', 'Usuarios')"
+            )
 
         conn.commit()
 
@@ -1214,6 +1334,7 @@ def limpar_dados_invalidos(preservar_usuarios: bool = True) -> Dict[str, int]:
 
 
 def salvar_classificacao_grupos(classificacoes: Sequence[ClassificacaoGrupo]) -> None:
+    atualizado_em = _agora_utc().isoformat()
     with get_connection() as conn:
         conn.execute("DELETE FROM Classificacao_Grupos")
         conn.executemany(
@@ -1222,7 +1343,7 @@ def salvar_classificacao_grupos(classificacoes: Sequence[ClassificacaoGrupo]) ->
                 grupo, time_nome, posicao, pontos, jogos, vitorias,
                 empates, derrotas, gols_pro, gols_contra, saldo_gols,
                 atualizado_em
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1237,6 +1358,7 @@ def salvar_classificacao_grupos(classificacoes: Sequence[ClassificacaoGrupo]) ->
                     item.gols_pro,
                     item.gols_contra,
                     item.saldo_gols,
+                    atualizado_em,
                 )
                 for item in classificacoes
             ],
@@ -1265,7 +1387,19 @@ def listar_classificacao_grupos(grupo: Optional[str] = None) -> List[Classificac
 carregar_classificacao_grupos = listar_classificacao_grupos
 
 
-init_db()
+def obter_resumo_banco() -> Dict[str, int]:
+    """Retorna contagens simples para confirmar o banco conectado."""
+    with get_connection() as conn:
+        usuarios = conn.execute("SELECT COUNT(*) AS total FROM Usuarios").fetchone()["total"]
+        jogos = conn.execute("SELECT COUNT(*) AS total FROM Jogos").fetchone()["total"]
+        palpites_partidas = conn.execute("SELECT COUNT(*) AS total FROM Palpites_Partidas").fetchone()["total"]
+        palpites_especiais = conn.execute("SELECT COUNT(*) AS total FROM Palpites_Especiais").fetchone()["total"]
+    return {
+        "usuarios": int(usuarios or 0),
+        "jogos": int(jogos or 0),
+        "palpites": int((palpites_partidas or 0) + (palpites_especiais or 0)),
+    }
+
 
 
 

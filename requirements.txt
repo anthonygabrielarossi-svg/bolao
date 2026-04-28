@@ -2,3 +2,6 @@ streamlit
 pandas
 requests
 bcrypt>=4.1.2
+sqlalchemy
+psycopg2-binary
+python-dotenv

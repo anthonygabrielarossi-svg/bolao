@@ -17,6 +17,8 @@ from .models import (
 )
 from .database import (
     COMPETICAO_PADRAO,
+    DatabaseConfigurationError,
+    DatabaseError,
     FASE_NAO_MAPEADA,
     FASES_VALIDAS_COPA,
     GRUPOS_VALIDOS_COPA,
@@ -35,7 +37,9 @@ from .database import (
     criar_sessao_usuario,
     hash_password,
     get_connection,
+    get_database_kind,
     init_db,
+    is_streamlit_cloud,
     listar_classificacao_grupos,
     listar_jogos,
     listar_jogos_por_fase,
@@ -44,6 +48,7 @@ from .database import (
     listar_usuarios,
     listar_usuarios_ranking,
     limpar_dados_invalidos,
+    obter_resumo_banco,
     promover_usuario_para_admin,
     revogar_sessao,
     salvar_classificacao_grupos,
@@ -63,6 +68,8 @@ from .database import (
 
 __all__ = [
     "COMPETICAO_PADRAO",
+    "DatabaseConfigurationError",
+    "DatabaseError",
     "FASE_NAO_MAPEADA",
     "FASES_VALIDAS_COPA",
     "GRUPOS_VALIDOS_COPA",
@@ -88,7 +95,9 @@ __all__ = [
     "criar_sessao_usuario",
     "hash_password",
     "get_connection",
+    "get_database_kind",
     "init_db",
+    "is_streamlit_cloud",
     "listar_classificacao_grupos",
     "listar_jogos",
     "listar_jogos_por_fase",
@@ -97,6 +106,7 @@ __all__ = [
     "listar_usuarios",
     "listar_usuarios_ranking",
     "limpar_dados_invalidos",
+    "obter_resumo_banco",
     "promover_usuario_para_admin",
     "revogar_sessao",
     "salvar_classificacao_grupos",

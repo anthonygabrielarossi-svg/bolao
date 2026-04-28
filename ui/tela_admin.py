@@ -6,7 +6,6 @@ manual de resultados, recalculo da classificacao e salvamento do gabarito oficia
 
 from __future__ import annotations
 
-import sqlite3
 from collections import Counter
 
 import pandas as pd
@@ -14,6 +13,7 @@ import streamlit as st
 
 from database import (
     COMPETICAO_PADRAO,
+    DatabaseError,
     FASE_NAO_MAPEADA,
     carregar_classificacao_grupos,
     carregar_resultados_oficiais,
@@ -109,7 +109,7 @@ def render_tela_admin(user_id: int) -> None:
                 st.warning(f"Nao foi possivel consultar a API: {exc}")
             except PermissionError as exc:
                 st.error(str(exc))
-            except sqlite3.Error as exc:
+            except DatabaseError as exc:
                 st.error(f"Erro ao salvar os jogos no banco: {exc}")
             else:
                 if total > 0:
@@ -122,7 +122,7 @@ def render_tela_admin(user_id: int) -> None:
                 resumo_fases = corrigir_fases_copa(executed_by_user_id=user_id)
             except PermissionError as exc:
                 st.error(str(exc))
-            except sqlite3.Error as exc:
+            except DatabaseError as exc:
                 st.error(f"Erro ao corrigir as fases no banco: {exc}")
             else:
                 st.success("Fases corrigidas com sucesso.")
@@ -143,7 +143,7 @@ def render_tela_admin(user_id: int) -> None:
                 resumo_grupos = corrigir_grupos_fase_de_grupos(executed_by_user_id=user_id)
             except PermissionError as exc:
                 st.error(str(exc))
-            except sqlite3.Error as exc:
+            except DatabaseError as exc:
                 st.error(f"Erro ao corrigir os grupos no banco: {exc}")
             else:
                 st.success("Grupos corrigidos com sucesso.")
@@ -196,7 +196,7 @@ def render_tela_admin(user_id: int) -> None:
                 st.warning(f"Nao foi possivel consultar a API de resultados: {exc}")
             except PermissionError as exc:
                 st.error(str(exc))
-            except sqlite3.Error as exc:
+            except DatabaseError as exc:
                 st.error(f"Erro ao atualizar o banco: {exc}")
             else:
                 st.success(
@@ -223,7 +223,7 @@ def render_tela_admin(user_id: int) -> None:
                 st.warning(f"Nao foi possivel atualizar os jogos pela API: {exc}")
             except PermissionError as exc:
                 st.error(str(exc))
-            except sqlite3.Error as exc:
+            except DatabaseError as exc:
                 st.error(f"Erro ao sincronizar os jogos no banco: {exc}")
             else:
                 progresso.progress(100)
@@ -263,7 +263,7 @@ def render_tela_admin(user_id: int) -> None:
                 st.warning(f"Nao foi possivel sincronizar os placares ao vivo: {exc}")
             except PermissionError as exc:
                 st.error(str(exc))
-            except sqlite3.Error as exc:
+            except DatabaseError as exc:
                 st.error(f"Erro ao sincronizar os jogos no banco: {exc}")
             else:
                 progresso.progress(100)

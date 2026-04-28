@@ -6,7 +6,6 @@ Uso:
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from database import init_db
+from database import DatabaseError, init_db
 from services.api_service import BSDAPIError
 from services.jogos_service import importar_jogos_copa
 
@@ -38,8 +37,8 @@ def main() -> int:
     except BSDAPIError as exc:
         log(f"Falha ao consultar a API BSD: {exc}")
         return 1
-    except sqlite3.Error as exc:
-        log(f"Falha ao salvar no SQLite: {exc}")
+    except DatabaseError as exc:
+        log(f"Falha ao salvar no banco: {exc}")
         return 1
     except Exception as exc:  # pragma: no cover - protecao extra para execucao manual
         log(f"Erro inesperado: {exc}")

@@ -8,7 +8,14 @@ from __future__ import annotations
 
 import streamlit as st
 
-from database import autenticar_usuario, cadastrar_usuario, init_db
+from database import (
+    DatabaseConfigurationError,
+    autenticar_usuario,
+    cadastrar_usuario,
+    get_database_kind,
+    init_db,
+    obter_resumo_banco,
+)
 from services.session_service import (
     criar_sessao_autenticada,
     encerrar_sessao_atual,
@@ -22,13 +29,20 @@ from ui.tela_ranking import render_tela_ranking
 from ui.tela_simulacao import render_tela_simulacao
 
 
-init_db()
-
 st.set_page_config(
     page_title="Bolao da Copa do Mundo",
     page_icon="B",
     layout="wide",
 )
+
+
+def inicializar_banco() -> None:
+    try:
+        init_db()
+    except DatabaseConfigurationError as exc:
+        st.error(str(exc))
+        st.info('Configure DATABASE_URL em Secrets no Streamlit Cloud, por exemplo: DATABASE_URL = "postgresql+psycopg2://usuario:senha@host:porta/postgres"')
+        st.stop()
 
 
 def iniciar_session_state() -> None:
@@ -126,9 +140,18 @@ def render_auth_screen() -> None:
 def render_menu_principal() -> None:
     """Renderiza a navegacao depois do login."""
     st.sidebar.title(f"Bem-vindo, {st.session_state.user_name}")
-    st.sidebar.caption("Sistema local com SQLite")
+    st.sidebar.caption(f"Banco conectado: {get_database_kind()}")
     if st.session_state.is_admin:
         st.sidebar.caption("Perfil: administrador")
+        if st.sidebar.button("Testar conexao banco"):
+            try:
+                resumo = obter_resumo_banco()
+            except Exception as exc:
+                st.sidebar.error(f"Falha ao consultar banco: {exc}")
+            else:
+                st.sidebar.write(f"Usuarios: {resumo['usuarios']}")
+                st.sidebar.write(f"Jogos: {resumo['jogos']}")
+                st.sidebar.write(f"Palpites: {resumo['palpites']}")
     else:
         st.sidebar.caption("Perfil: usuario")
 
@@ -182,6 +205,7 @@ def render_menu_principal() -> None:
 
 def main() -> None:
     """Ponto de entrada da aplicacao."""
+    inicializar_banco()
     iniciar_session_state()
 
     if manter_sessao_por_cookie_ou_state():

@@ -4,4 +4,4 @@ __pycache__/
 *.pyc
 *.pyo
 bolao_copa.db
-
+*.db
