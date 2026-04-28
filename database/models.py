@@ -18,6 +18,7 @@ class Usuario:
     senha: str
     pontuacao_total: int = 0
     is_admin: bool = False
+    aprovado: bool = True
 
 
 @dataclass(slots=True)

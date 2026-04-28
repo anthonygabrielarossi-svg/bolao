@@ -71,6 +71,8 @@ def _limpar_estado_sessao(mensagem: Optional[str] = None) -> None:
 
 def criar_sessao_autenticada(usuario: Usuario) -> str:
     """Cria a sessao persistida e grava o token no cookie do navegador."""
+    if not getattr(usuario, "aprovado", True):
+        raise PermissionError("Usuario ainda nao aprovado.")
     sessao = criar_sessao_usuario(usuario.id)
     token = str(sessao["session_token"])
     definir_cookie_sessao(token)
@@ -88,6 +90,13 @@ def manter_sessao_por_cookie_ou_state() -> bool:
         if sessao is None or sessao.get("revoked"):
             limpar_cookie_sessao()
             _limpar_estado_sessao()
+            return False
+
+        usuario = buscar_usuario_por_id(int(sessao["user_id"]))
+        if usuario is None or not getattr(usuario, "aprovado", True):
+            revogar_sessao(token_state)
+            limpar_cookie_sessao()
+            _limpar_estado_sessao("Acesso ainda nao liberado pelo administrador.")
             return False
 
         if _sessao_expirada(sessao):
@@ -126,10 +135,14 @@ def manter_sessao_por_cookie_ou_state() -> bool:
         return False
 
     usuario = buscar_usuario_por_id(int(sessao["user_id"]))
-    if usuario is None:
+    if usuario is None or not getattr(usuario, "aprovado", True):
         revogar_sessao(cookie_token)
         limpar_cookie_sessao()
-        _limpar_estado_sessao("Sessão inválida. Faça login novamente.")
+        _limpar_estado_sessao(
+            "Sessão inválida. Faça login novamente."
+            if usuario is None
+            else "Acesso ainda nao liberado pelo administrador."
+        )
         return False
 
     if renovar_sessao_por_atividade(cookie_token) is None:

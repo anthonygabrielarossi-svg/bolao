@@ -106,6 +106,7 @@ def _row_to_usuario(row: object) -> Usuario:
         senha=row["senha"],
         pontuacao_total=row["pontuacao_total"],
         is_admin=bool(_row_get(row, "is_admin", default=0)),
+        aprovado=bool(_row_get(row, "aprovado", default=1)),
     )
 
 
@@ -388,7 +389,8 @@ def init_db() -> None:
                 nome TEXT NOT NULL UNIQUE,
                 senha TEXT NOT NULL,
                 pontuacao_total INTEGER NOT NULL DEFAULT 0,
-                is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1))
+                is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
+                aprovado INTEGER NOT NULL DEFAULT 0 CHECK (aprovado IN (0, 1))
             );
 
             CREATE TABLE IF NOT EXISTS Sessoes (
@@ -486,7 +488,8 @@ def init_db() -> None:
                 nome TEXT NOT NULL UNIQUE,
                 senha TEXT NOT NULL,
                 pontuacao_total INTEGER NOT NULL DEFAULT 0,
-                is_admin BOOLEAN NOT NULL DEFAULT FALSE
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                aprovado BOOLEAN NOT NULL DEFAULT FALSE
             );
 
             CREATE TABLE IF NOT EXISTS Sessoes (
@@ -589,6 +592,12 @@ def init_db() -> None:
             "is_admin",
             "INTEGER NOT NULL DEFAULT 0" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE",
         )
+        _ensure_column(
+            conn,
+            "Usuarios",
+            "aprovado",
+            "INTEGER NOT NULL DEFAULT 1" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT TRUE",
+        )
         _ensure_column(conn, "Sessoes", "created_at", "TEXT")
         _ensure_column(conn, "Sessoes", "last_activity_at", "TEXT")
         _ensure_column(conn, "Sessoes", "expires_at", "TEXT")
@@ -632,10 +641,12 @@ def init_db() -> None:
 
         # Preenche os novos campos com os valores legados quando existirem.
         is_admin_default = "0" if conn.is_sqlite else "FALSE"
+        aprovado_default = "1" if conn.is_sqlite else "TRUE"
         conn.execute(
             f"""
             UPDATE Usuarios
             SET is_admin = COALESCE(is_admin, {is_admin_default}),
+                aprovado = COALESCE(aprovado, {aprovado_default}),
                 pontuacao_total = COALESCE(pontuacao_total, 0)
             """
         )
@@ -680,12 +691,12 @@ def cadastrar_usuario(nome: str, senha: str, is_admin: bool = False) -> Tuple[bo
     try:
         with get_connection() as conn:
             conn.execute(
-                "INSERT INTO Usuarios (nome, senha, is_admin) VALUES (?, ?, ?)",
-                (nome, hash_password(senha), bool(is_admin)),
+                "INSERT INTO Usuarios (nome, senha, is_admin, aprovado) VALUES (?, ?, ?, ?)",
+                (nome, hash_password(senha), bool(is_admin), bool(is_admin)),
             )
             conn.commit()
         _clear_data_cache()
-        return True, "Usuario cadastrado com sucesso."
+        return True, "Usuario cadastrado com sucesso. Aguarde a aprovacao do administrador."
     except DatabaseIntegrityError:
         return False, "Esse nome de usuario ja existe."
 
@@ -699,7 +710,7 @@ def autenticar_usuario(nome: str, senha: str) -> Optional[Usuario]:
     with get_connection() as conn:
         row = conn.execute(
             """
-            SELECT id, nome, senha, pontuacao_total, is_admin
+            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado
             FROM Usuarios
             WHERE nome = ?
             """,
@@ -729,7 +740,7 @@ def buscar_usuario_por_id(user_id: int) -> Optional[Usuario]:
     with get_connection() as conn:
         row = conn.execute(
             """
-            SELECT id, nome, senha, pontuacao_total, is_admin
+            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado
             FROM Usuarios
             WHERE id = ?
             """,
@@ -880,8 +891,21 @@ def usuario_eh_admin(user_id: Optional[int]) -> bool:
 def promover_usuario_para_admin(user_id: int) -> bool:
     with get_connection() as conn:
         cursor = conn.execute(
-            "UPDATE Usuarios SET is_admin = 1 WHERE id = ?",
-            (int(user_id),),
+            "UPDATE Usuarios SET is_admin = ?, aprovado = ? WHERE id = ?",
+            (True, True, int(user_id)),
+        )
+        conn.commit()
+    alterou = cursor.rowcount > 0
+    if alterou:
+        _clear_data_cache()
+    return alterou
+
+
+def aprovar_usuario(user_id: int) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE Usuarios SET aprovado = ? WHERE id = ?",
+            (True, int(user_id)),
         )
         conn.commit()
     alterou = cursor.rowcount > 0
@@ -894,7 +918,7 @@ def promover_usuario_para_admin(user_id: int) -> bool:
 def listar_usuarios() -> List[Usuario]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, nome, senha, pontuacao_total, is_admin FROM Usuarios ORDER BY nome ASC"
+            "SELECT id, nome, senha, pontuacao_total, is_admin, aprovado FROM Usuarios ORDER BY nome ASC"
         ).fetchall()
     return [_row_to_usuario(row) for row in rows]
 
@@ -905,7 +929,7 @@ def listar_usuarios_ranking() -> List[Usuario]:
     with get_connection() as conn:
         rows = conn.execute(
             """
-            SELECT id, nome, senha, pontuacao_total, is_admin
+            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado
             FROM Usuarios
             ORDER BY pontuacao_total DESC, nome ASC
             """

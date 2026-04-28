@@ -15,9 +15,11 @@ from database import (
     COMPETICAO_PADRAO,
     DatabaseError,
     FASE_NAO_MAPEADA,
+    aprovar_usuario,
     carregar_classificacao_grupos,
     carregar_resultados_oficiais,
     get_database_kind,
+    listar_usuarios,
     listar_jogos,
     obter_diagnostico_banco,
     salvar_resultados_oficiais,
@@ -98,8 +100,8 @@ def render_tela_admin(user_id: int) -> None:
         unsafe_allow_html=True,
     )
 
-    aba_importar, aba_resultados, aba_gabarito, aba_preview, aba_debug = st.tabs(
-        ["Importar jogos", "Atualizar resultados", "Gabarito oficial", "Preview", "Debug importação"]
+    aba_importar, aba_resultados, aba_gabarito, aba_usuarios, aba_preview, aba_debug = st.tabs(
+        ["Importar jogos", "Atualizar resultados", "Gabarito oficial", "Usuários", "Preview", "Debug importação"]
     )
 
     with aba_importar:
@@ -340,6 +342,42 @@ def render_tela_admin(user_id: int) -> None:
                 st.error(str(exc))
             else:
                 st.success("Gabarito oficial salvo com sucesso.")
+
+    with aba_usuarios:
+        st.subheader("Aprovação de usuários")
+        usuarios = listar_usuarios()
+        pendentes = [usuario for usuario in usuarios if not getattr(usuario, "aprovado", True)]
+
+        if not pendentes:
+            st.success("Nenhum usuário pendente de aprovação.")
+        else:
+            for usuario in pendentes:
+                col_nome, col_acao = st.columns([3, 1])
+                col_nome.write(usuario.nome)
+                if col_acao.button("Aprovar", key=f"aprovar_usuario_{usuario.id}"):
+                    if aprovar_usuario(int(usuario.id)):
+                        st.success(f"Usuário {usuario.nome} aprovado.")
+                        st.rerun()
+                    else:
+                        st.error("Não foi possível aprovar o usuário.")
+
+        if usuarios:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "ID": usuario.id,
+                            "Nome": usuario.nome,
+                            "Aprovado": "Sim" if getattr(usuario, "aprovado", True) else "Não",
+                            "Admin": "Sim" if usuario.is_admin else "Não",
+                            "Pontuação": usuario.pontuacao_total,
+                        }
+                        for usuario in usuarios
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
 
     with aba_preview:
         st.subheader("Jogos cadastrados")

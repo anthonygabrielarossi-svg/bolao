@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import streamlit as st
 import time
+from pathlib import Path
 
 from settings import DEBUG
 from database import (
@@ -71,6 +72,8 @@ def iniciar_session_state() -> None:
         st.session_state.session_token = None
     if "auth_flash_message" not in st.session_state:
         st.session_state.auth_flash_message = ""
+    if "pending_user_name" not in st.session_state:
+        st.session_state.pending_user_name = ""
 
 
 def fazer_logout() -> None:
@@ -100,8 +103,28 @@ def render_regras() -> None:
     )
 
 
+def render_tela_usuario_pendente() -> None:
+    st.title("Acesso não liberado")
+
+    imagem_pagamento = Path("assets/pague_bolao.png")
+    if imagem_pagamento.exists():
+        st.image(str(imagem_pagamento))
+
+    st.markdown("## Pague o bolão")
+    st.write("Seu cadastro foi realizado, mas ainda não foi aprovado pelo administrador.")
+    st.info("Entre em contato com o administrador para liberar seu acesso.")
+
+    if st.button("Voltar"):
+        st.session_state.clear()
+        st.rerun()
+
+
 def render_auth_screen() -> None:
     """Tela inicial com login e cadastro."""
+    if st.session_state.get("pending_user_name"):
+        render_tela_usuario_pendente()
+        st.stop()
+
     st.title("Bolao da Copa do Mundo")
     st.write("Entre para registrar seus palpites ou crie seu usuario para comecar.")
 
@@ -121,6 +144,9 @@ def render_auth_screen() -> None:
         if enviar:
             usuario = autenticar_usuario(nome, senha)
             if usuario:
+                if not getattr(usuario, "aprovado", True):
+                    st.session_state.pending_user_name = usuario.nome
+                    st.rerun()
                 criar_sessao_autenticada(usuario)
                 st.success("Login realizado com sucesso.")
                 st.rerun()
