@@ -104,4 +104,4 @@ load_env_file()
 SESSION_IDLE_TIMEOUT_MINUTES = _get_int_env("SESSION_IDLE_TIMEOUT_MINUTES", 15)
 SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "bolao_session_token").strip() or "bolao_session_token"
 SESSION_COOKIE_MAX_AGE_DAYS = _get_int_env("SESSION_COOKIE_MAX_AGE_DAYS", 30)
-TEST_MODE_AO_VIVO = _get_bool_env("TEST_MODE_AO_VIVO", True)
+TEST_MODE_AO_VIVO = _get_bool_env("TEST_MODE_AO_VIVO", False)

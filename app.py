@@ -7,6 +7,7 @@ simples e navegar entre as telas carregadas da pasta ui/.
 from __future__ import annotations
 
 import streamlit as st
+import time
 
 from database import (
     DatabaseConfigurationError,
@@ -36,9 +37,15 @@ st.set_page_config(
 )
 
 
+@st.cache_resource(show_spinner=False)
+def _inicializar_banco_cache() -> bool:
+    init_db()
+    return True
+
+
 def inicializar_banco() -> None:
     try:
-        init_db()
+        _inicializar_banco_cache()
     except DatabaseConfigurationError as exc:
         st.error(str(exc))
         st.info('Configure DATABASE_URL em Secrets no Streamlit Cloud, por exemplo: DATABASE_URL = "postgresql+psycopg2://usuario:senha@host:porta/postgres"')
@@ -205,6 +212,7 @@ def render_menu_principal() -> None:
 
 def main() -> None:
     """Ponto de entrada da aplicacao."""
+    inicio = time.perf_counter()
     inicializar_banco()
     iniciar_session_state()
 
@@ -212,6 +220,7 @@ def main() -> None:
         render_menu_principal()
     else:
         render_auth_screen()
+    st.caption(f"Tempo de carregamento: {time.perf_counter() - inicio:.2f}s")
 
 
 if __name__ == "__main__":

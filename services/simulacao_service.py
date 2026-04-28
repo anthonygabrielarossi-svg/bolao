@@ -100,7 +100,6 @@ def _debug_resolucao_simulacao(
     mensagem: str,
 ) -> None:
     debug_logs.append(mensagem)
-    print(f"[SIM] {mensagem}")
 
 
 def _estatisticas_vazias() -> Dict[str, int]:

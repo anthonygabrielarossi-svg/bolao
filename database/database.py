@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import bcrypt
+import streamlit as st
 
 from settings import SESSION_IDLE_TIMEOUT_MINUTES
 from utils.datetime_utils import bloquear_palpite_para_jogo, parse_iso_datetime
@@ -228,6 +229,13 @@ def _ensure_column(conn: DatabaseConnection, table: str, column: str, column_sql
     existing = conn.table_columns(table)
     if column not in existing:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_sql}")
+
+
+def _clear_data_cache() -> None:
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
 
 
 def _normalize_text(value: Optional[str]) -> str:
@@ -603,6 +611,12 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jogos_match_lookup ON Jogos(competicao, fase, grupo, data_jogo, time_a, time_b)"
         )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jogos_fase ON Jogos(fase)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jogos_grupo ON Jogos(grupo)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jogos_data_jogo ON Jogos(data_jogo)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_palpites_usuario_jogo ON Palpites_Partidas(user_id, match_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_palpites_especiais_usuario ON Palpites_Especiais(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_pontuacao ON Usuarios(pontuacao_total)")
 
         # Preenche os novos campos com os valores legados quando existirem.
         is_admin_default = "0" if conn.is_sqlite else "FALSE"
@@ -658,6 +672,7 @@ def cadastrar_usuario(nome: str, senha: str, is_admin: bool = False) -> Tuple[bo
                 (nome, hash_password(senha), bool(is_admin)),
             )
             conn.commit()
+        _clear_data_cache()
         return True, "Usuario cadastrado com sucesso."
     except DatabaseIntegrityError:
         return False, "Esse nome de usuario ja existe."
@@ -692,6 +707,7 @@ def autenticar_usuario(nome: str, senha: str) -> Optional[Usuario]:
                 (hash_password(senha), int(row["id"])),
             )
             conn.commit()
+        _clear_data_cache()
         return buscar_usuario_por_id(int(row["id"]))
 
     return _row_to_usuario(row)
@@ -856,9 +872,13 @@ def promover_usuario_para_admin(user_id: int) -> bool:
             (int(user_id),),
         )
         conn.commit()
-    return cursor.rowcount > 0
+    alterou = cursor.rowcount > 0
+    if alterou:
+        _clear_data_cache()
+    return alterou
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def listar_usuarios() -> List[Usuario]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -867,6 +887,7 @@ def listar_usuarios() -> List[Usuario]:
     return [_row_to_usuario(row) for row in rows]
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def listar_usuarios_ranking() -> List[Usuario]:
     """Retorna os usuarios ordenados pela pontuacao total."""
     with get_connection() as conn:
@@ -887,8 +908,10 @@ def atualizar_pontuacao_usuario(user_id: int, pontuacao_total: int) -> None:
             (int(pontuacao_total), int(user_id)),
         )
         conn.commit()
+    _clear_data_cache()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def listar_jogos() -> List[Jogo]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -1063,6 +1086,7 @@ def salvar_ou_atualizar_jogo(jogo: Jogo, connection: Optional[DatabaseConnection
             resultado = int(cursor.lastrowid)
         if owns_connection:
             conn.commit()
+            _clear_data_cache()
         return resultado
     finally:
         if owns_connection:
@@ -1083,6 +1107,7 @@ def salvar_jogos_em_lote(jogos: Sequence[Jogo], connection: Optional[DatabaseCon
             ids.append(salvar_ou_atualizar_jogo(jogo, connection=conn))
         if owns_connection:
             conn.commit()
+            _clear_data_cache()
         return ids
     finally:
         if owns_connection:
@@ -1116,8 +1141,10 @@ def atualizar_jogo_resultado(
             ),
         )
         conn.commit()
+    _clear_data_cache()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def listar_palpites_partidas_usuario(user_id: int) -> List[PalpitePartida]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -1168,8 +1195,10 @@ def salvar_palpites_partida(user_id: int, match_id: int, palpite_a: int, palpite
             (int(user_id), int(match_id), int(palpite_a), int(palpite_b)),
         )
         conn.commit()
+    _clear_data_cache()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def listar_palpites_especiais_usuario(user_id: int) -> Optional[PalpiteEspecial]:
     with get_connection() as conn:
         row = conn.execute(
@@ -1225,8 +1254,10 @@ def salvar_palpites_especiais(
             ),
         )
         conn.commit()
+    _clear_data_cache()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_resultados_oficiais() -> ResultadoOficial:
     with get_connection() as conn:
         row = conn.execute(
@@ -1282,6 +1313,7 @@ def salvar_resultados_oficiais(
             ),
         )
         conn.commit()
+    _clear_data_cache()
 
 
 def limpar_dados_invalidos(preservar_usuarios: bool = True) -> Dict[str, int]:
@@ -1330,6 +1362,7 @@ def limpar_dados_invalidos(preservar_usuarios: bool = True) -> Dict[str, int]:
 
         conn.commit()
 
+    _clear_data_cache()
     return resumo
 
 
@@ -1364,8 +1397,10 @@ def salvar_classificacao_grupos(classificacoes: Sequence[ClassificacaoGrupo]) ->
             ],
         )
         conn.commit()
+    _clear_data_cache()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def listar_classificacao_grupos(grupo: Optional[str] = None) -> List[ClassificacaoGrupo]:
     sql = """
         SELECT id, grupo, time_nome, posicao, pontos, jogos, vitorias,

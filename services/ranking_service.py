@@ -7,7 +7,7 @@ especiais, mantendo o ranking sempre derivado da base local SQLite.
 from __future__ import annotations
 
 import unicodedata
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from database import (
     COMPETICAO_PADRAO,
@@ -66,20 +66,27 @@ def pontuar_palpite_especial(chave: str, palpite: str, oficial: str) -> int:
     return 0
 
 
-def calcular_pontuacao_usuario(user_id: int) -> PontuacaoUsuario:
+def calcular_pontuacao_usuario(
+    user_id: int,
+    *,
+    usuarios_por_id: Optional[Dict[int, object]] = None,
+    jogos_finalizados: Optional[Dict[int, object]] = None,
+    resultados_oficiais=None,
+) -> PontuacaoUsuario:
     """Recalcula a pontuacao de um usuario com base nos palpites cadastrados."""
     palpites_partidas = {item.match_id: item for item in listar_palpites_partidas_usuario(user_id)}
     palpites_especiais = carregar_palpites_especiais(user_id)
-    resultados_oficiais = carregar_resultados_oficiais()
-    jogos_finalizados = {
-        jogo.id: jogo
-        for jogo in listar_jogos()
-        if jogo.finalizado
-        and jogo.placar_a is not None
-        and jogo.placar_b is not None
-        and jogo.id is not None
-        and jogo.competicao == COMPETICAO_PADRAO
-    }
+    resultados_oficiais = resultados_oficiais or carregar_resultados_oficiais()
+    if jogos_finalizados is None:
+        jogos_finalizados = {
+            jogo.id: jogo
+            for jogo in listar_jogos()
+            if jogo.finalizado
+            and jogo.placar_a is not None
+            and jogo.placar_b is not None
+            and jogo.id is not None
+            and jogo.competicao == COMPETICAO_PADRAO
+        }
 
     pontos_partidas = 0
     for match_id, palpite in palpites_partidas.items():
@@ -100,7 +107,10 @@ def calcular_pontuacao_usuario(user_id: int) -> PontuacaoUsuario:
     pontuacao_total = pontos_partidas + pontos_especiais
     atualizar_pontuacao_usuario(user_id, pontuacao_total)
 
-    usuario = next((item for item in listar_usuarios() if item.id == user_id), None)
+    if usuarios_por_id is None:
+        usuario = next((item for item in listar_usuarios() if item.id == user_id), None)
+    else:
+        usuario = usuarios_por_id.get(user_id)
     nome = usuario.nome if usuario else f"Usuario {user_id}"
 
     return PontuacaoUsuario(
@@ -116,8 +126,29 @@ def recalcular_ranking_automaticamente(executed_by_user_id: Optional[int] = None
     """Atualiza a pontuacao total de todos os usuarios e devolve o ranking."""
     _exigir_admin(executed_by_user_id)
     ranking_calculado: List[PontuacaoUsuario] = []
-    for usuario in listar_usuarios():
-        ranking_calculado.append(calcular_pontuacao_usuario(usuario.id))
+    usuarios = listar_usuarios()
+    usuarios_por_id = {int(usuario.id): usuario for usuario in usuarios if usuario.id is not None}
+    resultados_oficiais = carregar_resultados_oficiais()
+    jogos_finalizados = {
+        jogo.id: jogo
+        for jogo in listar_jogos()
+        if jogo.finalizado
+        and jogo.placar_a is not None
+        and jogo.placar_b is not None
+        and jogo.id is not None
+        and jogo.competicao == COMPETICAO_PADRAO
+    }
+    for usuario in usuarios:
+        if usuario.id is None:
+            continue
+        ranking_calculado.append(
+            calcular_pontuacao_usuario(
+                usuario.id,
+                usuarios_por_id=usuarios_por_id,
+                jogos_finalizados=jogos_finalizados,
+                resultados_oficiais=resultados_oficiais,
+            )
+        )
 
     ranking_calculado.sort(key=lambda item: (-item.pontuacao_total, item.nome.lower()))
     return ranking_calculado

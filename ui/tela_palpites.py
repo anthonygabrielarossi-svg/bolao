@@ -599,10 +599,6 @@ def render_abas_rodadas_grupo(
     tabs = st.tabs(["1ª Rodada", "2ª Rodada", "3ª Rodada"])
     jogos_grupo, jogos_por_rodada = atribuir_rodada_interna_grupo(jogos_grupo)
 
-    print(f"[BSD] {grupo_label}: total de jogos={len(jogos_grupo)}")
-    for rodada in (1, 2, 3):
-        print(f"[BSD] {grupo_label}: Rodada {rodada}: {len(jogos_por_rodada.get(rodada, []))} jogos")
-
     for idx, rodada in enumerate((1, 2, 3)):
         with tabs[idx]:
             jogos_rodada = _ordenar_jogos_grupo(jogos_por_rodada.get(rodada, []))

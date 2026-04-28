@@ -69,20 +69,17 @@ def manter_sessao_por_cookie_ou_state() -> bool:
     if st.session_state.get("logged_in") and token_state:
         sessao = buscar_sessao_por_token(token_state)
         if sessao is None or sessao.get("revoked"):
-            print("[BSD] Sessao atual nao encontrada ou revogada; encerrando acesso.")
             limpar_cookie_sessao()
             _limpar_estado_sessao()
             return False
 
         if _sessao_expirada(sessao):
-            print("[BSD] Sessao expirada por inatividade na validação de estado atual.")
             revogar_sessao(token_state)
             limpar_cookie_sessao()
             _limpar_estado_sessao("Sessão expirada por inatividade. Faça login novamente.")
             return False
 
         if renovar_sessao_por_atividade(token_state) is None:
-            print("[BSD] Falha ao renovar sessao ativa.")
             limpar_cookie_sessao()
             _limpar_estado_sessao("Sessão expirada por inatividade. Faça login novamente.")
             return False
@@ -97,17 +94,14 @@ def manter_sessao_por_cookie_ou_state() -> bool:
 
     sessao = buscar_sessao_por_token(cookie_token)
     if sessao is None:
-        print("[BSD] Cookie encontrado, mas a sessao nao existe mais.")
         limpar_cookie_sessao()
         return False
 
     if sessao.get("revoked"):
-        print("[BSD] Cookie encontrado, mas a sessao esta revogada.")
         limpar_cookie_sessao()
         return False
 
     if _sessao_expirada(sessao):
-        print("[BSD] Cookie encontrado, mas a sessao expirou por inatividade.")
         revogar_sessao(cookie_token)
         limpar_cookie_sessao()
         _limpar_estado_sessao("Sessão expirada por inatividade. Faça login novamente.")
@@ -115,14 +109,12 @@ def manter_sessao_por_cookie_ou_state() -> bool:
 
     usuario = buscar_usuario_por_id(int(sessao["user_id"]))
     if usuario is None:
-        print("[BSD] Sessao valida sem usuario correspondente; limpando acesso.")
         revogar_sessao(cookie_token)
         limpar_cookie_sessao()
         _limpar_estado_sessao("Sessão inválida. Faça login novamente.")
         return False
 
     if renovar_sessao_por_atividade(cookie_token) is None:
-        print("[BSD] Nao foi possivel renovar a sessao ao restaurar pelo cookie.")
         limpar_cookie_sessao()
         _limpar_estado_sessao("Sessão expirada por inatividade. Faça login novamente.")
         return False

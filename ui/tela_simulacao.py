@@ -334,11 +334,6 @@ def render_tela_simulacao() -> None:
         st.info("Alguns confrontos ainda dependem da combinacao dos melhores terceiros ou de resultados futuros.")
         st.caption(" | ".join(pendentes[:6]))
 
-    debug_logs = estado_simulado.get("simulacao_debug_chaveamento", [])
-    if debug_logs:
-        with st.expander("Diagnóstico do chaveamento", expanded=False):
-            st.code("\n".join(debug_logs), language="text")
-
     jogos_resolvidos = estado_simulado.get("simulacao_jogos_resolvidos", [])
     jogos_por_fase: Dict[str, List] = defaultdict(list)
     for jogo in jogos_resolvidos:

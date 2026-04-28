@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import os
 import re
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
+import streamlit as st
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, NoSuchTableError, SQLAlchemyError
@@ -64,12 +64,21 @@ def is_sqlite_url(database_url: Optional[str] = None) -> bool:
     return (database_url or get_database_url()).startswith("sqlite")
 
 
-@lru_cache(maxsize=4)
+@st.cache_resource(show_spinner=False)
 def get_engine(database_url: Optional[str] = None) -> Engine:
     """Cria/reutiliza a engine SQLAlchemy."""
     url = database_url or get_database_url()
     connect_args = {"check_same_thread": False} if is_sqlite_url(url) else {}
-    return create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
+    if is_sqlite_url(url):
+        return create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
+    return create_engine(
+        url,
+        future=True,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=300,
+    )
 
 
 class ResultProxy:

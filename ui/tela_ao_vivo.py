@@ -310,15 +310,5 @@ def render_tela_ao_vivo() -> None:
         ),
     )
 
-    with st.expander("Debug Ao Vivo", expanded=TEST_MODE_AO_VIVO):
-        st.write(f"Modo teste: {TEST_MODE_AO_VIVO}")
-        st.write(f"Total exibido: {len(jogos_ordenados)}")
-        for indice, jogo in enumerate(jogos_ordenados, start=1):
-            st.write(
-                f"{indice}. league_id={jogo.get('league_id')} | "
-                f"status={jogo.get('status')} | "
-                f"{jogo.get('time_casa') or '-'} x {jogo.get('time_fora') or '-'}"
-            )
-
     for jogo in jogos_ordenados:
         _render_jogo_ao_vivo_card(jogo)
