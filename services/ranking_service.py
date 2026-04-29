@@ -16,6 +16,7 @@ from database import (
     atualizar_pontuacoes_usuarios_em_lote,
     carregar_palpites_especiais,
     carregar_resultados_oficiais,
+    contar_usuarios_aprovados,
     listar_jogos,
     listar_palpites_partidas_usuario,
     listar_todos_palpites_especiais,
@@ -34,6 +35,23 @@ PESOS_ESPECIAIS = {
     "primeiro_grupo_a": 5,
     "segundo_grupo_a": 5,
 }
+
+
+def calcular_premiacao_bolao(total_usuarios_aprovados: int) -> Dict[str, float]:
+    valor_acumulado = int(total_usuarios_aprovados) * 50
+    return {
+        "valor_acumulado": valor_acumulado,
+        "primeiro": valor_acumulado * 0.60,
+        "segundo": valor_acumulado * 0.30,
+        "terceiro": valor_acumulado * 0.10,
+    }
+
+
+def obter_premiacao_bolao() -> Dict[str, float]:
+    total_aprovados = contar_usuarios_aprovados()
+    premiacao = calcular_premiacao_bolao(total_aprovados)
+    premiacao["total_usuarios_aprovados"] = total_aprovados
+    return premiacao
 
 
 def _normalizar_texto(texto: Optional[str]) -> str:

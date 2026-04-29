@@ -11,8 +11,8 @@ from typing import List, Optional, Tuple
 
 import streamlit as st
 
-from services.ranking_service import listar_ranking_atual
-from utils.formatters import normalizar_texto
+from services.ranking_service import listar_ranking_atual, obter_premiacao_bolao
+from utils.formatters import formatar_moeda_brl, normalizar_texto
 
 
 def _render_estilos_ranking() -> None:
@@ -318,6 +318,21 @@ def _calcular_media_pontos(ranking: List) -> float:
     return round(total / len(ranking), 1)
 
 
+def _render_metricas_premiacao(premiacao: dict) -> None:
+    st.markdown('<div class="ranking-section-label">Premiacao</div>', unsafe_allow_html=True)
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("Usuarios pagos/aprovados", int(premiacao["total_usuarios_aprovados"]))
+    with col2:
+        st.metric("Valor acumulado", formatar_moeda_brl(premiacao["valor_acumulado"]))
+    with col3:
+        st.metric("1o lugar", formatar_moeda_brl(premiacao["primeiro"]))
+    with col4:
+        st.metric("2o lugar", formatar_moeda_brl(premiacao["segundo"]))
+    with col5:
+        st.metric("3o lugar", formatar_moeda_brl(premiacao["terceiro"]))
+
+
 def _render_header(
     lider_nome: str,
     lider_pontos: int,
@@ -330,9 +345,6 @@ def _render_header(
         <div class="ranking-hero">
             <div class="ranking-kicker">Classificacao geral</div>
             <div class="ranking-title">Ranking do Bolao</div>
-            <div class="ranking-subtitle">
-                Acompanhe a colocacao dos participantes com uma apresentacao mais limpa,
-                moderna e facil de ler.
             </div>
         </div>
         """,
@@ -502,6 +514,7 @@ def render_tela_ranking() -> None:
     _render_estilos_ranking()
 
     ranking = listar_ranking_atual()
+    premiacao = obter_premiacao_bolao()
 
     if not ranking:
         st.markdown(
@@ -521,6 +534,7 @@ def render_tela_ranking() -> None:
             ).strip(),
             unsafe_allow_html=True,
         )
+        _render_metricas_premiacao(premiacao)
         return
 
     ranking_ordenado = list(ranking)
@@ -537,6 +551,8 @@ def render_tela_ranking() -> None:
         maior_pontuacao=maior_pontuacao,
         media_pontos=media_pontos,
     )
+
+    _render_metricas_premiacao(premiacao)
 
     busca_col, limite_col = st.columns([3, 1])
     with busca_col:

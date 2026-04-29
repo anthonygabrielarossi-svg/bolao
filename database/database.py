@@ -915,6 +915,21 @@ def aprovar_usuario(user_id: int) -> bool:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
+def contar_usuarios_aprovados() -> int:
+    """Conta participantes aprovados no bolao, sem incluir administradores."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM Usuarios
+            WHERE aprovado = ? AND is_admin = ?
+            """,
+            (True, False),
+        ).fetchone()
+    return int(row["total"] if row else 0)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
 def listar_usuarios() -> List[Usuario]:
     with get_connection() as conn:
         rows = conn.execute(
