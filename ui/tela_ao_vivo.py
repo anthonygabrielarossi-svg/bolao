@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - fallback compativel
     st_autorefresh = None
 
 from settings import TEST_MODE_AO_VIVO
+from database import listar_palpites_por_api_ids
 from services.api_service import BSDAPIError, buscar_jogos_ao_vivo, buscar_jogos_ao_vivo_teste
 from ui.tela_palpites import _aplicar_estilos_palpites, _formatar_data_hora
 from utils.formatters import formatar_nome_time
@@ -101,7 +102,27 @@ def _render_pill(labels: List[str]) -> str:
     )
 
 
-def _render_jogo_ao_vivo_card(jogo: Dict[str, Any]) -> None:
+def _render_palpites_jogo(jogo: Dict[str, Any], palpites: List[Dict[str, Any]]) -> None:
+    home_nome = formatar_nome_time(jogo.get("time_casa") or jogo.get("home_team") or "-")
+    away_nome = formatar_nome_time(jogo.get("time_fora") or jogo.get("away_team") or "-")
+
+    with st.expander("Ver palpites", expanded=False):
+        st.markdown("### Palpites")
+        if not palpites:
+            st.caption("Nenhum palpite registrado para este jogo.")
+            return
+
+        for palpite in palpites:
+            nome = _html_escape(palpite.get("nome"))
+            gols_casa = int(palpite.get("gols_casa") or 0)
+            gols_fora = int(palpite.get("gols_fora") or 0)
+            st.markdown(
+                f"**{nome}**: {_html_escape(home_nome)} {gols_casa} x {gols_fora} {_html_escape(away_nome)}",
+                unsafe_allow_html=True,
+            )
+
+
+def _render_jogo_ao_vivo_card(jogo: Dict[str, Any], palpites: Optional[List[Dict[str, Any]]] = None) -> None:
     home_nome = formatar_nome_time(jogo.get("time_casa") or jogo.get("home_team") or "-")
     away_nome = formatar_nome_time(jogo.get("time_fora") or jogo.get("away_team") or "-")
     home_identity = render_team_identity_html(
@@ -163,6 +184,7 @@ def _render_jogo_ao_vivo_card(jogo: Dict[str, Any]) -> None:
         ),
         unsafe_allow_html=True,
     )
+    _render_palpites_jogo(jogo, palpites or [])
 
 
 def render_tela_ao_vivo() -> None:
@@ -312,5 +334,14 @@ def render_tela_ao_vivo() -> None:
         ),
     )
 
+    api_ids = tuple(
+        int(jogo["api_id"])
+        for jogo in jogos_ordenados
+        if jogo.get("api_id") is not None and not jogo.get("mock")
+    )
+    palpites_por_api_id = listar_palpites_por_api_ids(api_ids)
+
     for jogo in jogos_ordenados:
-        _render_jogo_ao_vivo_card(jogo)
+        api_id = jogo.get("api_id")
+        palpites = palpites_por_api_id.get(int(api_id), []) if api_id is not None else []
+        _render_jogo_ao_vivo_card(jogo, palpites)

@@ -1265,6 +1265,83 @@ def listar_todos_palpites_partidas() -> List[PalpitePartida]:
     return [_row_to_palpite_partida(row) for row in rows]
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def listar_palpites_por_jogos(lista_ids: Tuple[int, ...]) -> Dict[int, List[Dict[str, object]]]:
+    """Retorna palpites por jogo local, considerando apenas participantes aprovados."""
+    ids = tuple(sorted({int(jogo_id) for jogo_id in lista_ids if jogo_id is not None}))
+    if not ids:
+        return {}
+
+    placeholders = ", ".join("?" for _ in ids)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT p.match_id AS jogo_id,
+                   u.nome AS nome,
+                   p.palpite_a AS gols_casa,
+                   p.palpite_b AS gols_fora
+            FROM Palpites_Partidas p
+            INNER JOIN Usuarios u ON u.id = p.user_id
+            WHERE p.match_id IN ({placeholders})
+              AND u.aprovado = ?
+              AND u.is_admin = ?
+            ORDER BY p.match_id ASC, LOWER(u.nome) ASC
+            """,
+            ids + (True, False),
+        ).fetchall()
+
+    palpites_por_jogo: Dict[int, List[Dict[str, object]]] = {jogo_id: [] for jogo_id in ids}
+    for row in rows:
+        jogo_id = int(row["jogo_id"])
+        palpites_por_jogo.setdefault(jogo_id, []).append(
+            {
+                "nome": str(row["nome"] or ""),
+                "gols_casa": int(row["gols_casa"] or 0),
+                "gols_fora": int(row["gols_fora"] or 0),
+            }
+        )
+    return palpites_por_jogo
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def listar_palpites_por_api_ids(api_ids: Tuple[int, ...]) -> Dict[int, List[Dict[str, object]]]:
+    """Retorna palpites agrupados pelo api_id do jogo, util para a tela Ao Vivo."""
+    ids = tuple(sorted({int(api_id) for api_id in api_ids if api_id is not None}))
+    if not ids:
+        return {}
+
+    placeholders = ", ".join("?" for _ in ids)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT j.api_id AS api_id,
+                   u.nome AS nome,
+                   p.palpite_a AS gols_casa,
+                   p.palpite_b AS gols_fora
+            FROM Jogos j
+            INNER JOIN Palpites_Partidas p ON p.match_id = j.id
+            INNER JOIN Usuarios u ON u.id = p.user_id
+            WHERE j.api_id IN ({placeholders})
+              AND u.aprovado = ?
+              AND u.is_admin = ?
+            ORDER BY j.api_id ASC, LOWER(u.nome) ASC
+            """,
+            ids + (True, False),
+        ).fetchall()
+
+    palpites_por_api_id: Dict[int, List[Dict[str, object]]] = {api_id: [] for api_id in ids}
+    for row in rows:
+        api_id = int(row["api_id"])
+        palpites_por_api_id.setdefault(api_id, []).append(
+            {
+                "nome": str(row["nome"] or ""),
+                "gols_casa": int(row["gols_casa"] or 0),
+                "gols_fora": int(row["gols_fora"] or 0),
+            }
+        )
+    return palpites_por_api_id
+
+
 def carregar_palpites_partidas(user_id: int) -> Dict[int, Dict[str, int]]:
     """Retorna os palpites de partidas em formato amigavel para a interface."""
     return {
