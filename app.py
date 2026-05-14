@@ -13,6 +13,7 @@ from pathlib import Path
 from settings import DEBUG
 from database import (
     DatabaseConfigurationError,
+    DatabaseError,
     autenticar_usuario,
     cadastrar_usuario,
     get_database_kind,
@@ -50,7 +51,26 @@ def inicializar_banco() -> None:
         _inicializar_banco_cache()
     except DatabaseConfigurationError as exc:
         st.error(str(exc))
-        st.info('Configure DATABASE_URL em Secrets no Streamlit Cloud, por exemplo: DATABASE_URL = "postgresql+psycopg2://usuario:senha@host:porta/postgres"')
+        st.info('Configure DATABASE_URL em Secrets no Streamlit Cloud, por exemplo: DATABASE_URL = "postgresql+psycopg2://usuario:senha@host:porta/postgres?sslmode=require"')
+        st.stop()
+    except DatabaseError as exc:
+        st.error("Nao foi possivel conectar ao banco PostgreSQL.")
+        st.info(
+            "Confira no Streamlit Cloud se o secret DATABASE_URL esta correto, "
+            "se o banco aceita conexoes externas e se a URL usa SSL "
+            "(exemplo: postgresql+psycopg2://usuario:senha@host:porta/postgres?sslmode=require)."
+        )
+        if DEBUG:
+            st.exception(exc)
+        st.stop()
+    except Exception as exc:
+        st.error("Nao foi possivel inicializar o banco de dados.")
+        st.info(
+            "Se estiver no Streamlit Cloud, confirme que o app foi redeployado "
+            "com a ultima versao do codigo e revise o secret DATABASE_URL."
+        )
+        if DEBUG:
+            st.exception(exc)
         st.stop()
 
 
