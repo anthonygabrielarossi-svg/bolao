@@ -951,9 +951,9 @@ def solicitar_recuperacao_senha(nome: str) -> Tuple[bool, str, Optional[Dict[str
             """
             SELECT id, nome, troca_senha_liberada
             FROM Usuarios
-            WHERE nome = ? AND aprovado = ?
+            WHERE LOWER(nome) = LOWER(?)
             """,
-            (nome, True),
+            (nome,),
         ).fetchone()
 
         if row is None:
@@ -1009,9 +1009,9 @@ def redefinir_senha_liberada(nome: str, nova_senha: str) -> Tuple[bool, str]:
             """
             SELECT id, troca_senha_liberada
             FROM Usuarios
-            WHERE nome = ? AND aprovado = ?
+            WHERE LOWER(nome) = LOWER(?)
             """,
-            (nome, True),
+            (nome,),
         ).fetchone()
 
         if row is None:

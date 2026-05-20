@@ -24,12 +24,16 @@ def render_tela_recuperar_senha() -> None:
         if not ok:
             st.error(mensagem)
         else:
-            st.session_state.recuperar_senha_usuario = nome_usuario.strip()
+            st.session_state.recuperar_senha_usuario = (
+                str(dados_usuario["nome"]) if dados_usuario else nome_usuario.strip()
+            )
             st.session_state.recuperar_senha_liberada = bool(
                 dados_usuario and dados_usuario.get("troca_senha_liberada")
             )
             if st.session_state.recuperar_senha_liberada:
                 st.success("Troca de senha liberada. Defina sua nova senha abaixo.")
+            elif dados_usuario is None:
+                st.info(mensagem)
             else:
                 st.info(
                     "Solicitacao enviada. Aguarde o administrador liberar a troca de senha e tente novamente."
