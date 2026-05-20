@@ -19,6 +19,8 @@ class Usuario:
     pontuacao_total: int = 0
     is_admin: bool = False
     aprovado: bool = True
+    recuperacao_senha_solicitada: bool = False
+    troca_senha_liberada: bool = False
 
 
 @dataclass(slots=True)

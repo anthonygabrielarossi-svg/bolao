@@ -140,19 +140,9 @@ def render_tela_usuario_pendente() -> None:
         st.rerun()
 
 
-def _obter_token_reset_url() -> str:
-    try:
-        return st.query_params.get("reset_token", "")
-    except AttributeError:
-        params = st.experimental_get_query_params()  # type: ignore[attr-defined]
-        valores = params.get("reset_token", [])
-        return valores[0] if valores else ""
-
-
 def render_auth_screen() -> None:
     """Tela inicial com login e cadastro."""
-    token_reset = _obter_token_reset_url()
-    if token_reset or st.session_state.get("current_screen") == "recuperar_senha":
+    if st.session_state.get("current_screen") == "recuperar_senha":
         render_tela_recuperar_senha()
         st.stop()
 
@@ -190,14 +180,13 @@ def render_auth_screen() -> None:
 
         if st.button("Esqueci minha senha", key="btn_esqueci_senha"):
             st.session_state.current_screen = "recuperar_senha"
-            st.session_state.pop("recuperar_senha_etapa", None)
-            st.session_state.pop("recuperar_senha_token_pendente", None)
+            st.session_state.pop("recuperar_senha_usuario", None)
+            st.session_state.pop("recuperar_senha_liberada", None)
             st.rerun()
 
     with tab_cadastro:
         with st.form("form_cadastro", clear_on_submit=False):
             nome_novo = st.text_input("Nome de usuario", key="cad_nome")
-            email_novo = st.text_input("Email (opcional, para recuperacao de senha)", key="cad_email")
             senha_nova = st.text_input("Senha", type="password", key="cad_senha")
             confirmar_senha = st.text_input("Confirmar senha", type="password")
             enviar_cadastro = st.form_submit_button("Criar conta")
@@ -206,7 +195,7 @@ def render_auth_screen() -> None:
             if senha_nova != confirmar_senha:
                 st.error("As senhas nao conferem.")
             else:
-                ok, mensagem = cadastrar_usuario(nome_novo, senha_nova, email=email_novo.strip() or None)
+                ok, mensagem = cadastrar_usuario(nome_novo, senha_nova)
                 if ok:
                     st.success(mensagem)
                 else:

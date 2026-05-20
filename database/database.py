@@ -108,6 +108,8 @@ def _row_to_usuario(row: object) -> Usuario:
         pontuacao_total=row["pontuacao_total"],
         is_admin=bool(_row_get(row, "is_admin", default=0)),
         aprovado=bool(_row_get(row, "aprovado", default=1)),
+        recuperacao_senha_solicitada=bool(_row_get(row, "recuperacao_senha_solicitada", default=0)),
+        troca_senha_liberada=bool(_row_get(row, "troca_senha_liberada", default=0)),
     )
 
 
@@ -391,7 +393,9 @@ def init_db() -> None:
                 senha TEXT NOT NULL,
                 pontuacao_total INTEGER NOT NULL DEFAULT 0,
                 is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
-                aprovado INTEGER NOT NULL DEFAULT 0 CHECK (aprovado IN (0, 1))
+                aprovado INTEGER NOT NULL DEFAULT 0 CHECK (aprovado IN (0, 1)),
+                recuperacao_senha_solicitada INTEGER NOT NULL DEFAULT 0 CHECK (recuperacao_senha_solicitada IN (0, 1)),
+                troca_senha_liberada INTEGER NOT NULL DEFAULT 0 CHECK (troca_senha_liberada IN (0, 1))
             );
 
             CREATE TABLE IF NOT EXISTS Sessoes (
@@ -500,7 +504,9 @@ def init_db() -> None:
                 senha TEXT NOT NULL,
                 pontuacao_total INTEGER NOT NULL DEFAULT 0,
                 is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-                aprovado BOOLEAN NOT NULL DEFAULT FALSE
+                aprovado BOOLEAN NOT NULL DEFAULT FALSE,
+                recuperacao_senha_solicitada BOOLEAN NOT NULL DEFAULT FALSE,
+                troca_senha_liberada BOOLEAN NOT NULL DEFAULT FALSE
             );
 
             CREATE TABLE IF NOT EXISTS Sessoes (
@@ -607,6 +613,18 @@ def init_db() -> None:
 
         # Migra a tabela Jogos para as colunas novas sem quebrar a base antiga.
         _ensure_column(conn, "Usuarios", "email", "TEXT")
+        _ensure_column(
+            conn,
+            "Usuarios",
+            "recuperacao_senha_solicitada",
+            "INTEGER NOT NULL DEFAULT 0" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE",
+        )
+        _ensure_column(
+            conn,
+            "Usuarios",
+            "troca_senha_liberada",
+            "INTEGER NOT NULL DEFAULT 0" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE",
+        )
         _ensure_column(conn, "Usuarios", "pontuacao_total", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(
             conn,
@@ -738,7 +756,8 @@ def autenticar_usuario(nome: str, senha: str) -> Optional[Usuario]:
     with get_connection() as conn:
         row = conn.execute(
             """
-            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado
+            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado,
+                   recuperacao_senha_solicitada, troca_senha_liberada
             FROM Usuarios
             WHERE nome = ?
             """,
@@ -919,6 +938,101 @@ def redefinir_senha_usuario(user_id: int, nova_senha: str) -> Tuple[bool, str]:
         return True, "Senha redefinida com sucesso."
     except Exception:
         return False, "Erro ao redefinir senha."
+
+
+def solicitar_recuperacao_senha(nome: str) -> Tuple[bool, str, Optional[Dict[str, object]]]:
+    """Registra o pedido de recuperacao para um usuario aprovado."""
+    nome = (nome or "").strip()
+    if not nome:
+        return False, "Informe o nome de usuario.", None
+
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, nome, troca_senha_liberada
+            FROM Usuarios
+            WHERE nome = ? AND aprovado = ?
+            """,
+            (nome, True),
+        ).fetchone()
+
+        if row is None:
+            return True, "Se o usuario existir, a solicitacao sera enviada ao administrador.", None
+
+        conn.execute(
+            """
+            UPDATE Usuarios
+            SET recuperacao_senha_solicitada = ?
+            WHERE id = ?
+            """,
+            (True, int(row["id"])),
+        )
+        conn.commit()
+
+    _clear_data_cache()
+    return True, "Solicitacao enviada ao administrador.", {
+        "id": int(row["id"]),
+        "nome": str(row["nome"]),
+        "troca_senha_liberada": bool(row["troca_senha_liberada"]),
+    }
+
+
+def liberar_troca_senha_usuario(user_id: int) -> bool:
+    """Libera o usuario para redefinir a propria senha na tela de recuperacao."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE Usuarios
+            SET troca_senha_liberada = ?, recuperacao_senha_solicitada = ?
+            WHERE id = ?
+            """,
+            (True, True, int(user_id)),
+        )
+        conn.commit()
+
+    alterou = cursor.rowcount > 0
+    if alterou:
+        _clear_data_cache()
+    return alterou
+
+
+def redefinir_senha_liberada(nome: str, nova_senha: str) -> Tuple[bool, str]:
+    """Redefine a senha quando o administrador ja liberou a troca."""
+    nome = (nome or "").strip()
+    if not nome:
+        return False, "Informe o nome de usuario."
+    if not nova_senha or len(nova_senha) < 4:
+        return False, "A senha deve ter pelo menos 4 caracteres."
+
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, troca_senha_liberada
+            FROM Usuarios
+            WHERE nome = ? AND aprovado = ?
+            """,
+            (nome, True),
+        ).fetchone()
+
+        if row is None:
+            return False, "Usuario nao encontrado ou ainda nao aprovado."
+        if not bool(row["troca_senha_liberada"]):
+            return False, "A troca de senha ainda nao foi liberada pelo administrador."
+
+        conn.execute(
+            """
+            UPDATE Usuarios
+            SET senha = ?,
+                recuperacao_senha_solicitada = ?,
+                troca_senha_liberada = ?
+            WHERE id = ?
+            """,
+            (hash_password(nova_senha), False, False, int(row["id"])),
+        )
+        conn.commit()
+
+    _clear_data_cache()
+    return True, "Senha redefinida com sucesso."
 
 
 def buscar_usuario_por_id(user_id: int) -> Optional[Usuario]:
@@ -1118,7 +1232,12 @@ def contar_usuarios_aprovados() -> int:
 def listar_usuarios() -> List[Usuario]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, nome, senha, pontuacao_total, is_admin, aprovado FROM Usuarios ORDER BY nome ASC"
+            """
+            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado,
+                   recuperacao_senha_solicitada, troca_senha_liberada
+            FROM Usuarios
+            ORDER BY nome ASC
+            """
         ).fetchall()
     return [_row_to_usuario(row) for row in rows]
 
@@ -1129,7 +1248,8 @@ def listar_usuarios_ranking() -> List[Usuario]:
     with get_connection() as conn:
         rows = conn.execute(
             """
-            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado
+            SELECT id, nome, senha, pontuacao_total, is_admin, aprovado,
+                   recuperacao_senha_solicitada, troca_senha_liberada
             FROM Usuarios
             ORDER BY pontuacao_total DESC, nome ASC
             """

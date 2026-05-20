@@ -21,8 +21,8 @@ from database import (
     get_database_kind,
     listar_usuarios,
     listar_jogos,
+    liberar_troca_senha_usuario,
     obter_diagnostico_banco,
-    redefinir_senha_usuario,
     salvar_resultados_oficiais,
     usuario_eh_admin,
 )
@@ -371,6 +371,13 @@ def render_tela_admin(user_id: int) -> None:
                             "Nome": usuario.nome,
                             "Aprovado": "Sim" if getattr(usuario, "aprovado", True) else "Não",
                             "Admin": "Sim" if usuario.is_admin else "Não",
+                            "Recuperacao": (
+                                "Liberada"
+                                if getattr(usuario, "troca_senha_liberada", False)
+                                else "Solicitada"
+                                if getattr(usuario, "recuperacao_senha_solicitada", False)
+                                else "-"
+                            ),
                             "Pontuação": usuario.pontuacao_total,
                         }
                         for usuario in usuarios
@@ -381,35 +388,26 @@ def render_tela_admin(user_id: int) -> None:
             )
 
         st.divider()
-        st.subheader("Redefinir senha de usuario")
-        st.caption("Use esta ferramenta para redefinir manualmente a senha de um usuario.")
+        st.subheader("Solicitacoes de recuperacao de senha")
+        solicitacoes = [
+            usuario
+            for usuario in usuarios
+            if getattr(usuario, "recuperacao_senha_solicitada", False)
+            and not getattr(usuario, "troca_senha_liberada", False)
+        ]
 
-        nomes_usuarios = [u.nome for u in usuarios] if usuarios else []
-        usuario_selecionado = st.selectbox(
-            "Selecionar usuario",
-            options=nomes_usuarios,
-            index=None,
-            placeholder="Escolha um usuario...",
-            key="admin_reset_usuario_select",
-        )
-
-        if usuario_selecionado:
-            usuario_alvo = next((u for u in usuarios if u.nome == usuario_selecionado), None)
-            if usuario_alvo:
-                with st.form("form_admin_reset_senha"):
-                    nova_senha_admin = st.text_input("Nova senha", type="password")
-                    confirmar_admin = st.text_input("Confirmar nova senha", type="password")
-                    confirmar_reset = st.form_submit_button("Redefinir senha")
-
-                if confirmar_reset:
-                    if nova_senha_admin != confirmar_admin:
-                        st.error("As senhas nao conferem.")
+        if not solicitacoes:
+            st.success("Nenhuma solicitacao de recuperacao pendente.")
+        else:
+            for usuario in solicitacoes:
+                col_nome, col_acao = st.columns([3, 1])
+                col_nome.write(usuario.nome)
+                if col_acao.button("Liberar troca", key=f"liberar_troca_senha_{usuario.id}"):
+                    if liberar_troca_senha_usuario(int(usuario.id)):
+                        st.success(f"Troca de senha liberada para {usuario.nome}.")
+                        st.rerun()
                     else:
-                        ok, msg = redefinir_senha_usuario(int(usuario_alvo.id), nova_senha_admin)
-                        if ok:
-                            st.success(f"Senha de '{usuario_selecionado}' redefinida com sucesso.")
-                        else:
-                            st.error(msg)
+                        st.error("Nao foi possivel liberar a troca de senha.")
 
     with aba_preview:
         st.subheader("Jogos cadastrados")
