@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import streamlit as st
 import time
+from io import BytesIO
 from pathlib import Path
 
 from settings import DEBUG
@@ -133,11 +134,97 @@ def render_tela_usuario_pendente() -> None:
 
     st.markdown("## Pague o bolão")
     st.write("Seu cadastro foi realizado, mas ainda não foi aprovado pelo administrador.")
-    st.info("Entre em contato com o administrador para liberar seu acesso.")
+    st.info("Pague via PIX e entre em contato com o administrador para liberar seu acesso.")
+
+    chave_pix = "27992048707"
+    codigo_pix = _gerar_pix_copia_cola(
+        chave_pix="+5527992048707",
+        valor=30.00,
+        nome_recebedor="BOLAO DA COPA",
+        cidade="BRASIL",
+        txid="BOLAO2026",
+    )
+
+    col_qr, col_dados = st.columns([1, 2])
+    with col_qr:
+        qr_png = _gerar_qr_code_png(codigo_pix)
+        if qr_png:
+            st.image(qr_png, caption="PIX - R$ 30,00", width=220)
+        else:
+            st.warning("QR code indisponivel neste ambiente.")
+
+    with col_dados:
+        st.write("Valor: **R$ 30,00**")
+        st.write(f"Chave PIX: **{chave_pix}**")
+        st.caption("Se preferir, copie o codigo PIX abaixo no app do banco.")
+        st.code(codigo_pix, language=None)
 
     if st.button("Voltar"):
         st.session_state.clear()
         st.rerun()
+
+
+def _campo_emv(id_campo: str, valor: str) -> str:
+    return f"{id_campo}{len(valor):02d}{valor}"
+
+
+def _crc16_ccitt(payload: str) -> str:
+    crc = 0xFFFF
+    for byte in payload.encode("utf-8"):
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = (crc << 1) ^ 0x1021
+            else:
+                crc <<= 1
+            crc &= 0xFFFF
+    return f"{crc:04X}"
+
+
+def _gerar_pix_copia_cola(
+    *,
+    chave_pix: str,
+    valor: float,
+    nome_recebedor: str,
+    cidade: str,
+    txid: str,
+) -> str:
+    merchant_account = _campo_emv("00", "BR.GOV.BCB.PIX") + _campo_emv("01", chave_pix)
+    additional_data = _campo_emv("05", txid[:25])
+    payload_sem_crc = (
+        _campo_emv("00", "01")
+        + _campo_emv("26", merchant_account)
+        + _campo_emv("52", "0000")
+        + _campo_emv("53", "986")
+        + _campo_emv("54", f"{valor:.2f}")
+        + _campo_emv("58", "BR")
+        + _campo_emv("59", nome_recebedor[:25])
+        + _campo_emv("60", cidade[:15])
+        + _campo_emv("62", additional_data)
+        + "6304"
+    )
+    return payload_sem_crc + _crc16_ccitt(payload_sem_crc)
+
+
+def _gerar_qr_code_png(conteudo: str) -> BytesIO | None:
+    try:
+        import qrcode
+    except ImportError:
+        return None
+
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=3,
+    )
+    qr.add_data(conteudo)
+    qr.make(fit=True)
+    imagem = qr.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    imagem.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
 
 
 def render_auth_screen() -> None:
