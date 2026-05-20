@@ -22,6 +22,7 @@ from database import (
     listar_usuarios,
     listar_jogos,
     obter_diagnostico_banco,
+    redefinir_senha_usuario,
     salvar_resultados_oficiais,
     usuario_eh_admin,
 )
@@ -378,6 +379,37 @@ def render_tela_admin(user_id: int) -> None:
                 use_container_width=True,
                 hide_index=True,
             )
+
+        st.divider()
+        st.subheader("Redefinir senha de usuario")
+        st.caption("Use esta ferramenta para redefinir manualmente a senha de um usuario.")
+
+        nomes_usuarios = [u.nome for u in usuarios] if usuarios else []
+        usuario_selecionado = st.selectbox(
+            "Selecionar usuario",
+            options=nomes_usuarios,
+            index=None,
+            placeholder="Escolha um usuario...",
+            key="admin_reset_usuario_select",
+        )
+
+        if usuario_selecionado:
+            usuario_alvo = next((u for u in usuarios if u.nome == usuario_selecionado), None)
+            if usuario_alvo:
+                with st.form("form_admin_reset_senha"):
+                    nova_senha_admin = st.text_input("Nova senha", type="password")
+                    confirmar_admin = st.text_input("Confirmar nova senha", type="password")
+                    confirmar_reset = st.form_submit_button("Redefinir senha")
+
+                if confirmar_reset:
+                    if nova_senha_admin != confirmar_admin:
+                        st.error("As senhas nao conferem.")
+                    else:
+                        ok, msg = redefinir_senha_usuario(int(usuario_alvo.id), nova_senha_admin)
+                        if ok:
+                            st.success(f"Senha de '{usuario_selecionado}' redefinida com sucesso.")
+                        else:
+                            st.error(msg)
 
     with aba_preview:
         st.subheader("Jogos cadastrados")

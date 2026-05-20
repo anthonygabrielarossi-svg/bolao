@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import os
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import bcrypt
 import streamlit as st
 
-from settings import SESSION_IDLE_TIMEOUT_MINUTES
+from settings import RESET_TOKEN_EXPIRE_MINUTES, SESSION_IDLE_TIMEOUT_MINUTES
 from utils.datetime_utils import bloquear_palpite_para_jogo, parse_iso_datetime
 from utils.team_assets import get_team_logo_url
 from utils.world_cup import (
@@ -480,6 +481,16 @@ def init_db() -> None:
                 segundo_grupo_a TEXT,
                 atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS TokensRecuperacaoSenha (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token TEXT NOT NULL UNIQUE,
+                criado_em TEXT NOT NULL,
+                expira_em TEXT NOT NULL,
+                usado INTEGER NOT NULL DEFAULT 0 CHECK (usado IN (0, 1)),
+                FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
+            );
             """
         else:
             schema_sql = """
@@ -580,11 +591,22 @@ def init_db() -> None:
                 segundo_grupo_a TEXT,
                 atualizado_em TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS TokensRecuperacaoSenha (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                token TEXT NOT NULL UNIQUE,
+                criado_em TEXT NOT NULL,
+                expira_em TEXT NOT NULL,
+                usado BOOLEAN NOT NULL DEFAULT FALSE,
+                FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
+            );
             """
 
         conn.executescript(schema_sql)
 
         # Migra a tabela Jogos para as colunas novas sem quebrar a base antiga.
+        _ensure_column(conn, "Usuarios", "email", "TEXT")
         _ensure_column(conn, "Usuarios", "pontuacao_total", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(
             conn,
@@ -638,6 +660,8 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_palpites_usuario_jogo ON Palpites_Partidas(user_id, match_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_palpites_especiais_usuario ON Palpites_Especiais(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_pontuacao ON Usuarios(pontuacao_total)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tokens_recuperacao_user ON TokensRecuperacaoSenha(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tokens_recuperacao_token ON TokensRecuperacaoSenha(token)")
 
         # Preenche os novos campos com os valores legados quando existirem.
         is_admin_default = "0" if conn.is_sqlite else "FALSE"
@@ -682,17 +706,21 @@ def init_db() -> None:
         conn.commit()
 
 
-def cadastrar_usuario(nome: str, senha: str, is_admin: bool = False) -> Tuple[bool, str]:
+def cadastrar_usuario(
+    nome: str, senha: str, is_admin: bool = False, email: Optional[str] = None
+) -> Tuple[bool, str]:
     """Cadastra um novo usuario."""
     nome = nome.strip()
     if not nome or not senha:
         return False, "Informe nome e senha."
 
+    email_normalizado = (email or "").strip().lower() or None
+
     try:
         with get_connection() as conn:
             conn.execute(
-                "INSERT INTO Usuarios (nome, senha, is_admin, aprovado) VALUES (?, ?, ?, ?)",
-                (nome, hash_password(senha), bool(is_admin), bool(is_admin)),
+                "INSERT INTO Usuarios (nome, senha, is_admin, aprovado, email) VALUES (?, ?, ?, ?, ?)",
+                (nome, hash_password(senha), bool(is_admin), bool(is_admin), email_normalizado),
             )
             conn.commit()
         _clear_data_cache()
@@ -734,6 +762,163 @@ def autenticar_usuario(nome: str, senha: str) -> Optional[Usuario]:
         return buscar_usuario_por_id(int(row["id"]))
 
     return _row_to_usuario(row)
+
+
+def gerar_token_recuperacao(
+    identificador: str,
+) -> Tuple[bool, str, Optional[Dict[str, object]]]:
+    """Gera um token de recuperacao de senha para o usuario identificado por nome ou email.
+
+    Por seguranca, retorna uma mensagem generica quando o usuario nao e encontrado.
+    Retorna (sucesso, token_ou_mensagem, dados_usuario).
+    dados_usuario contem {id, nome, email} quando o usuario e encontrado.
+    """
+    identificador = (identificador or "").strip()
+    if not identificador:
+        return False, "Informe o nome de usuario ou email.", None
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, nome, email FROM Usuarios WHERE nome = ? AND aprovado = ?",
+            (identificador, True),
+        ).fetchone()
+
+        if row is None and "@" in identificador:
+            row = conn.execute(
+                "SELECT id, nome, email FROM Usuarios WHERE LOWER(COALESCE(email,'')) = LOWER(?) AND aprovado = ?",
+                (identificador, True),
+            ).fetchone()
+
+    if row is None:
+        return True, "Se o usuario existir, o token foi gerado.", None
+
+    token = secrets.token_urlsafe(32)
+    agora = _agora_utc()
+    expira_em = agora + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO TokensRecuperacaoSenha (user_id, token, criado_em, expira_em, usado)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (int(row["id"]), token, agora.isoformat(), expira_em.isoformat(), False),
+            )
+            conn.commit()
+    except Exception:
+        return False, "Erro ao gerar token. Tente novamente.", None
+
+    return True, token, {
+        "id": int(row["id"]),
+        "nome": str(row["nome"]),
+        "email": row["email"] or "",
+    }
+
+
+def validar_token_recuperacao(token: str) -> Optional[Dict[str, object]]:
+    """Valida um token de recuperacao. Retorna {id, nome} se valido, None se invalido/expirado."""
+    if not token:
+        return None
+
+    agora = _agora_utc()
+
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT t.user_id, u.nome, t.expira_em, t.usado
+            FROM TokensRecuperacaoSenha t
+            JOIN Usuarios u ON u.id = t.user_id
+            WHERE t.token = ?
+            """,
+            (token,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    if bool(row["usado"]):
+        return None
+
+    expira_em = parse_iso_datetime(str(row["expira_em"]))
+    if expira_em is None:
+        return None
+    if agora >= expira_em.astimezone(timezone.utc):
+        return None
+
+    return {"id": int(row["user_id"]), "nome": str(row["nome"])}
+
+
+def redefinir_senha_por_token(token: str, nova_senha: str) -> Tuple[bool, str]:
+    """Redefine a senha do usuario usando um token de recuperacao valido."""
+    if not nova_senha or len(nova_senha) < 4:
+        return False, "A senha deve ter pelo menos 4 caracteres."
+
+    dados = validar_token_recuperacao(token)
+    if dados is None:
+        return False, "Token invalido ou expirado."
+
+    nova_hash = hash_password(nova_senha)
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE Usuarios SET senha = ? WHERE id = ?",
+                (nova_hash, int(dados["id"])),
+            )
+            conn.execute(
+                "UPDATE TokensRecuperacaoSenha SET usado = ? WHERE token = ?",
+                (True, token),
+            )
+            conn.commit()
+        _clear_data_cache()
+        return True, "Senha redefinida com sucesso."
+    except Exception:
+        return False, "Erro ao redefinir senha. Tente novamente."
+
+
+def atualizar_email_usuario(user_id: int, email: str) -> Tuple[bool, str]:
+    """Atualiza o email de um usuario."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False, "Email nao pode ser vazio."
+
+    try:
+        with get_connection() as conn:
+            duplicado = conn.execute(
+                "SELECT id FROM Usuarios WHERE LOWER(COALESCE(email,'')) = ? AND id != ?",
+                (email, int(user_id)),
+            ).fetchone()
+            if duplicado is not None:
+                return False, "Este email ja esta em uso por outro usuario."
+
+            conn.execute(
+                "UPDATE Usuarios SET email = ? WHERE id = ?",
+                (email, int(user_id)),
+            )
+            conn.commit()
+        _clear_data_cache()
+        return True, "Email atualizado com sucesso."
+    except Exception as exc:
+        return False, f"Erro ao atualizar email: {exc}"
+
+
+def redefinir_senha_usuario(user_id: int, nova_senha: str) -> Tuple[bool, str]:
+    """Redefine a senha de um usuario diretamente (uso administrativo)."""
+    if not nova_senha or len(nova_senha) < 4:
+        return False, "A senha deve ter pelo menos 4 caracteres."
+
+    nova_hash = hash_password(nova_senha)
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE Usuarios SET senha = ? WHERE id = ?",
+                (nova_hash, int(user_id)),
+            )
+            conn.commit()
+        _clear_data_cache()
+        return True, "Senha redefinida com sucesso."
+    except Exception:
+        return False, "Erro ao redefinir senha."
 
 
 def buscar_usuario_por_id(user_id: int) -> Optional[Usuario]:

@@ -104,3 +104,13 @@ SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "bolao_session_token").st
 SESSION_COOKIE_MAX_AGE_DAYS = _get_int_env("SESSION_COOKIE_MAX_AGE_DAYS", 30)
 DEBUG = _get_bool_env("DEBUG", False)
 TEST_MODE_AO_VIVO = _get_bool_env("TEST_MODE_AO_VIVO", True)
+
+# Configuracoes de email para recuperacao de senha
+# SMTP_USE_TLS=true usa SMTP_SSL (porta 465); false usa STARTTLS (porta 587)
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = _get_int_env("SMTP_PORT", 587)
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", "").strip()
+SMTP_USE_TLS = _get_bool_env("SMTP_USE_TLS", False)
+RESET_TOKEN_EXPIRE_MINUTES = _get_int_env("RESET_TOKEN_EXPIRE_MINUTES", 60)
