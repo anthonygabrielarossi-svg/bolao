@@ -1779,12 +1779,12 @@ def carregar_resultados_oficiais() -> ResultadoOficial:
 def salvar_resultados_oficiais(
     artilheiro: str,
     melhor_jogador: str,
-    primeiro_grupo_a: str,
-    segundo_grupo_a: str,
     executed_by_user_id: Optional[int] = None,
     *,
     campeao: str = "",
     vice: str = "",
+    primeiro_grupo_a: str = "",
+    segundo_grupo_a: str = "",
 ) -> None:
     if executed_by_user_id is not None and not usuario_eh_admin(executed_by_user_id):
         raise PermissionError("Apenas administradores podem editar o gabarito oficial.")

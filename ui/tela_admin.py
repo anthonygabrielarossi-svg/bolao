@@ -38,7 +38,7 @@ from services.jogos_service import (
     importar_jogos_copa,
     listar_jogos_importados_debug,
 )
-from services.ranking_service import _obter_campeao_vice_da_final, recalcular_ranking_automaticamente
+from services.ranking_service import _obter_campeao_vice_da_final, _obter_classificacao_grupos_oficial, recalcular_ranking_automaticamente
 from utils.formatters import normalizar_texto
 from utils.team_assets import construir_mapa_logos_por_jogos, render_team_identity_html
 
@@ -335,12 +335,22 @@ def render_tela_admin(user_id: int) -> None:
         else:
             st.info("Campeão e vice serão detectados automaticamente quando a Final for finalizada.")
 
+        classificacao_atual = _obter_classificacao_grupos_oficial()
+        grupos_completos = sum(
+            1 for g, v in classificacao_atual.items()
+            if not g.startswith("_") and v.get("primeiro") and v.get("segundo")
+        )
+        terceiros_detectados = len(classificacao_atual.get("_terceiros_classificados", []))
+        st.info(
+            f"**Classificação dos grupos detectada automaticamente** — "
+            f"{grupos_completos}/12 grupos encerrados · "
+            f"{terceiros_detectados}/8 terceiros classificados identificados."
+        )
+
         oficiais = carregar_resultados_oficiais()
         with st.form("form_gabarito_oficial"):
             artilheiro = st.text_input("Artilheiro", value=oficiais.artilheiro)
             melhor_jogador = st.text_input("Melhor Jogador", value=oficiais.melhor_jogador)
-            primeiro_grupo_a = st.text_input("1o colocado do Grupo A", value=oficiais.primeiro_grupo_a)
-            segundo_grupo_a = st.text_input("2o colocado do Grupo A", value=oficiais.segundo_grupo_a)
             salvar = st.form_submit_button("Salvar gabarito oficial")
 
         if salvar:
@@ -348,8 +358,6 @@ def render_tela_admin(user_id: int) -> None:
                 salvar_resultados_oficiais(
                     artilheiro=artilheiro,
                     melhor_jogador=melhor_jogador,
-                    primeiro_grupo_a=primeiro_grupo_a,
-                    segundo_grupo_a=segundo_grupo_a,
                     executed_by_user_id=user_id,
                 )
             except PermissionError as exc:

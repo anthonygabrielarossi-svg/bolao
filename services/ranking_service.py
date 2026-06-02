@@ -6,7 +6,8 @@ especiais, mantendo o ranking sempre derivado da base local SQLite.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+import json
+from typing import Any, Dict, List, Optional
 
 from database import (
     COMPETICAO_PADRAO,
@@ -33,8 +34,9 @@ PESOS_ESPECIAIS = {
     "vice": 15,
     "artilheiro": 10,
     "melhor_jogador": 10,
-    "primeiro_grupo_a": 5,
-    "segundo_grupo_a": 5,
+    "primeiro_grupo": 5,       # por grupo (12 possíveis)
+    "segundo_grupo": 5,        # por grupo (12 possíveis)
+    "terceiro_classificado": 3, # por 3º colocado que avançou (8 possíveis)
 }
 
 
@@ -55,7 +57,7 @@ def obter_premiacao_bolao() -> Dict[str, float]:
     return premiacao
 
 
-_CHAVES_TIME = frozenset({"campeao", "vice", "primeiro_grupo_a", "segundo_grupo_a"})
+_CHAVES_TIME = frozenset({"campeao", "vice", "primeiro_grupo", "segundo_grupo"})
 
 
 def _obter_campeao_vice_da_final(jogos: Optional[List] = None) -> tuple[str, str]:
@@ -78,6 +80,37 @@ def _obter_campeao_vice_da_final(jogos: Optional[List] = None) -> tuple[str, str
     if int(final.placar_b) > int(final.placar_a):
         return fora, casa
     return "", ""  # empate no tempo normal → pênaltis não resolvível só pelo placar
+
+
+def _obter_classificacao_grupos_oficial(jogos: Optional[List] = None) -> Dict[str, Any]:
+    """Retorna 1º/2º de cada grupo e os 8 terceiros qualificados a partir dos resultados reais."""
+    from services.classificacao_service import calcular_classificacao_real_grupos
+
+    classificados = calcular_classificacao_real_grupos(jogos)
+
+    por_grupo: Dict[str, List] = {}
+    for item in classificados:
+        por_grupo.setdefault(item.grupo, []).append(item)
+
+    resultado: Dict[str, Any] = {}
+    terceiros: List = []
+
+    for grupo, times in por_grupo.items():
+        ordenados = sorted(times, key=lambda t: t.posicao)
+        resultado[grupo] = {
+            "primeiro": ordenados[0].time_nome if len(ordenados) > 0 else "",
+            "segundo": ordenados[1].time_nome if len(ordenados) > 1 else "",
+        }
+        if len(ordenados) > 2 and ordenados[2].jogos > 0:
+            terceiros.append(ordenados[2])
+
+    top8 = sorted(
+        terceiros,
+        key=lambda t: (-t.pontos, -t.saldo_gols, -t.gols_pro, -t.vitorias, t.time_nome.lower()),
+    )[:8]
+    resultado["_terceiros_classificados"] = [t.time_nome for t in top8]
+
+    return resultado
 
 
 def _exigir_admin(executed_by_user_id: Optional[int]) -> None:
@@ -118,19 +151,56 @@ def pontuar_palpite_especial(chave: str, palpite: str, oficial: str) -> int:
 def _pontuar_especiais(palpites_especiais, resultados_oficiais, *, jogos: Optional[List] = None) -> int:
     if not palpites_especiais:
         return 0
+
     campeao_auto, vice_auto = _obter_campeao_vice_da_final(jogos)
+    classificacao_oficial = _obter_classificacao_grupos_oficial(jogos)
+    terceiros_ok = {
+        normalizar_texto(canonicalizar_time(t) or t)
+        for t in classificacao_oficial.get("_terceiros_classificados", [])
+    }
 
-    def _oficial(chave: str) -> str:
-        if chave == "campeao":
-            return campeao_auto
-        if chave == "vice":
-            return vice_auto
-        return getattr(resultados_oficiais, chave, "") or ""
+    pts = 0
 
-    return sum(
-        pontuar_palpite_especial(chave, getattr(palpites_especiais, chave, "") or "", _oficial(chave))
-        for chave in PESOS_ESPECIAIS
-    )
+    # Campeão e vice (detectados da Final)
+    pts += pontuar_palpite_especial("campeao", getattr(palpites_especiais, "campeao", "") or "", campeao_auto)
+    pts += pontuar_palpite_especial("vice", getattr(palpites_especiais, "vice", "") or "", vice_auto)
+
+    # Artilheiro e melhor jogador (gabarito manual)
+    for chave in ("artilheiro", "melhor_jogador"):
+        pts += pontuar_palpite_especial(
+            chave,
+            getattr(palpites_especiais, chave, "") or "",
+            getattr(resultados_oficiais, chave, "") or "",
+        )
+
+    # Classificação dos grupos — todos os 12
+    bruto = getattr(palpites_especiais, "classificados_grupos", "") or ""
+    if bruto:
+        try:
+            classificados_palpite = json.loads(bruto)
+        except (json.JSONDecodeError, ValueError):
+            classificados_palpite = {}
+
+        for grupo, valores in classificados_palpite.items():
+            if not isinstance(valores, dict):
+                continue
+
+            info_oficial = classificacao_oficial.get(grupo, {})
+            primeiro_oficial = info_oficial.get("primeiro", "")
+            segundo_oficial = info_oficial.get("segundo", "")
+
+            if primeiro_oficial:
+                pts += pontuar_palpite_especial("primeiro_grupo", valores.get("primeiro", "") or "", primeiro_oficial)
+            if segundo_oficial:
+                pts += pontuar_palpite_especial("segundo_grupo", valores.get("segundo", "") or "", segundo_oficial)
+
+            # 3º colocado que se classificou
+            if terceiros_ok and valores.get("terceiro_classificado") and valores.get("terceiro"):
+                chave_t = normalizar_texto(canonicalizar_time(valores["terceiro"]) or valores["terceiro"])
+                if chave_t in terceiros_ok:
+                    pts += PESOS_ESPECIAIS["terceiro_classificado"]
+
+    return pts
 
 
 def calcular_pontuacao_usuario(
