@@ -530,13 +530,14 @@ def render_tela_simulacao() -> None:
         _render_chaveamento_visual(jogos_por_fase, resultados_atuais, chaveamento)
 
         with st.expander("Editar placares do mata-mata", expanded=False):
-            for fase in fases_mata_mata:
-                jogos_fase = _ordenar_jogos_grupo(jogos_por_fase.get(fase, []))
-                if jogos_fase:
-                    st.markdown(f"#### {fase}")
-                    for jogo in jogos_fase:
-                        _render_jogo_simulado_card(jogo, resultados_atuais, chaveamento)
-                    st.divider()
+            fases_com_jogos = [f for f in fases_mata_mata if jogos_por_fase.get(f)]
+            if fases_com_jogos:
+                abas = st.tabs(fases_com_jogos)
+                for aba, fase in zip(abas, fases_com_jogos):
+                    with aba:
+                        jogos_fase = _ordenar_jogos_grupo(jogos_por_fase.get(fase, []))
+                        for jogo in jogos_fase:
+                            _render_jogo_simulado_card(jogo, resultados_atuais, chaveamento)
 
     if jogos_por_fase.get(FASE_NAO_MAPEADA):
         _render_fase_simples_simulacao(FASE_NAO_MAPEADA, jogos_por_fase.get(FASE_NAO_MAPEADA, []), resultados_atuais, chaveamento)
