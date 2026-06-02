@@ -86,6 +86,11 @@ def render_tela_admin(user_id: int) -> None:
             gap: 0.45rem;
             flex-wrap: wrap;
         }
+        .wc-team-flag {
+            font-size: 1.15rem;
+            line-height: 1;
+            flex-shrink: 0;
+        }
         .wc-team-logo {
             width: 22px;
             height: 22px;
