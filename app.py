@@ -105,22 +105,79 @@ def fazer_logout() -> None:
 
 
 def render_regras() -> None:
-    """Exibe o texto base das regras do bolao."""
-    st.title("Regras da Copa do Mundo")
+    """Exibe as regras atualizadas do bolao."""
+    st.title("Regras do Bolão — Copa do Mundo 2026")
+
+    st.markdown("## Participação")
     st.markdown(
         """
-        O sistema funciona por pontos com base nos acertos da Copa do Mundo.
+- Valor de inscrição: **R$ 30,00** por participante (pague via PIX antes do início da Copa).
+- O acesso é liberado manualmente pelo administrador após confirmação do pagamento.
+- Palpites podem ser alterados a qualquer momento **até 1 hora antes do início de cada jogo**.
+        """
+    )
 
-        - 10 pontos: placar exato
-        - 5 pontos: acertar o vencedor da partida
-        - 20 pontos: acertar o campeao
-        - 15 pontos: acertar o vice-campeao
-        - 10 pontos: acertar o artilheiro
-        - 10 pontos: acertar o melhor jogador
-        - A fase de grupos usa os grupos A ate L
-        - O mata-mata segue o chaveamento oficial da Copa do Mundo 2026
+    st.markdown("## Pontuação por Partida")
+    st.markdown(
+        """
+| Acerto | Pontos |
+|--------|-------:|
+| Placar exato (ex: 2 × 1) | **10** |
+| Apenas o vencedor / empate correto | **5** |
+| Erro | 0 |
 
-        O ranking exibe a soma da pontuacao total de cada usuario.
+Vale para todos os jogos: fase de grupos, mata-mata e disputa de 3º lugar.
+        """
+    )
+
+    st.markdown("## Palpites Especiais")
+    st.markdown(
+        """
+Além dos placares, cada participante faz palpites sobre o torneio inteiro.
+O sistema verifica os acertos **automaticamente** com base nos resultados oficiais.
+
+| Palpite | Pontos |
+|---------|-------:|
+| Campeão | **20** |
+| Vice-campeão | **15** |
+| Artilheiro da Copa | **10** |
+| Melhor jogador (Bola de Ouro) | **10** |
+| 1º colocado de cada grupo (× 12) | **5** cada |
+| 2º colocado de cada grupo (× 12) | **5** cada |
+| 3º colocado que avança (× 8 vagas) | **3** cada |
+
+**Campeão e vice** são detectados automaticamente pelo resultado da Final.
+
+**Classificação dos grupos** é calculada automaticamente ao fim da fase de grupos,
+usando os critérios oficiais da FIFA: pontos → saldo de gols → gols marcados → vitórias.
+
+**8 terceiros classificados**: os 12 terceiros colocados são ranqueados pelos mesmos
+critérios e os 8 melhores avançam. O sistema identifica quem passou automaticamente.
+        """
+    )
+
+    st.markdown("## Premiação")
+    st.markdown(
+        """
+O prêmio é formado pela soma das inscrições dos participantes aprovados (R$ 30,00 cada).
+
+| Colocação | % do prêmio |
+|-----------|------------:|
+| 1º lugar | **60%** |
+| 2º lugar | **30%** |
+| 3º lugar | **10%** |
+
+Em caso de empate no ranking, a posição é desempatada pela ordem alfabética do nome.
+        """
+    )
+
+    st.markdown("## Regras Gerais")
+    st.markdown(
+        """
+- Os palpites de partida ficam **bloqueados 1 hora antes do início do jogo**.
+- Palpites especiais (grupos, campeão, artilheiro etc.) podem ser alterados **até o início do primeiro jogo da Copa**.
+- O ranking é atualizado pelo administrador após cada rodada de jogos finalizados.
+- Em caso de dúvidas ou disputas, a decisão do administrador é final.
         """
     )
 
