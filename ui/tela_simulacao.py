@@ -15,6 +15,7 @@ import streamlit as st
 
 from database import FASE_NAO_MAPEADA, listar_jogos_por_fase
 from services.simulacao_service import inicializar_simulacao_state, resetar_simulacao_state, resumir_simulacao
+from utils.flags import get_flag_emoji as _get_flag_emoji
 from utils.formatters import formatar_nome_time, normalizar_texto
 from utils.team_assets import render_team_identity_html
 from ui.tela_palpites import (
@@ -238,6 +239,176 @@ def _render_fase_simples_simulacao(
             _render_jogo_simulado_card(jogo, resultados, chaveamento)
 
 
+def _bracket_css() -> str:
+    return """<style>
+.bk-wrap{overflow-x:auto;padding:12px 0 24px}
+.bk-bracket{display:flex;flex-direction:row;align-items:stretch;height:660px;min-width:1200px}
+.bk-half-L{display:flex;flex-direction:row;flex:1;gap:14px;min-width:0;overflow:visible}
+.bk-half-R{display:flex;flex-direction:row;flex:1;gap:14px;min-width:0;overflow:visible}
+.bk-col{display:flex;flex-direction:column;height:100%;flex-shrink:0;width:156px;overflow:visible}
+.bk-col-lbl{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#64748b;text-align:center;height:22px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.bk-col-games{flex:1;display:flex;flex-direction:column;justify-content:space-around;align-items:center;overflow:visible}
+.bk-pair-L,.bk-pair-R{flex:1;display:flex;flex-direction:column;justify-content:space-around;align-items:center;position:relative;width:100%;overflow:visible}
+.bk-pair-L::after{content:'';position:absolute;right:-14px;top:22%;height:56%;width:14px;border-top:1.5px solid #3d4f66;border-right:1.5px solid #3d4f66;border-bottom:1.5px solid #3d4f66;box-sizing:border-box;pointer-events:none}
+.bk-pair-R::after{content:'';position:absolute;left:-14px;top:22%;height:56%;width:14px;border-top:1.5px solid #3d4f66;border-left:1.5px solid #3d4f66;border-bottom:1.5px solid #3d4f66;box-sizing:border-box;pointer-events:none}
+.bk-solo{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%}
+.bk-col-center{display:flex;flex-direction:column;align-items:center;height:100%;width:182px;flex-shrink:0;padding:0 8px}
+.bk-center-top{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;width:100%}
+.bk-center-bot{flex:0 0 160px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;padding-bottom:12px;width:100%}
+.bk-trophy{font-size:30px;line-height:1}
+.bk-fin-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#f59e0b}
+.bk-3rd-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8}
+.bk-card{background:#1a2333;border:1px solid #334155;border-radius:5px;overflow:hidden;font-size:11px;width:154px;flex-shrink:0}
+.bk-card.bk-p{opacity:.42;border-style:dashed;border-color:#374151}
+.bk-card.bk-fin{width:164px;font-size:12px}
+.bk-row{display:flex;align-items:center;padding:4px 7px;gap:5px;height:26px;overflow:hidden}
+.bk-card.bk-fin .bk-row{height:30px}
+.bk-row+.bk-row{border-top:1px solid #334155}
+.bk-f{font-size:13px;flex-shrink:0;line-height:1}
+.bk-n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#94a3b8}
+.bk-s{font-weight:700;min-width:18px;text-align:right;color:#94a3b8;font-size:12px}
+.bk-row.bk-w .bk-n{color:#f1f5f9;font-weight:600}
+.bk-row.bk-w .bk-s{color:#4ade80}
+.bk-row.bk-l .bk-n{color:#475569}
+.bk-row.bk-l .bk-s{color:#475569}
+</style>"""
+
+
+def _bk_card(jogo, resultados: Dict[int, Dict[str, Any]], chaveamento: Dict[int, Dict[str, Any]], final: bool = False) -> str:
+    chave = _chave_jogo(jogo)
+    info = chaveamento.get(chave, {})
+    home = info.get("time_casa") or formatar_nome_time(jogo.time_casa or jogo.time_a or "") or "A definir"
+    away = info.get("time_fora") or formatar_nome_time(jogo.time_fora or jogo.time_b or "") or "A definir"
+
+    res = resultados.get(chave, {})
+    gh = res.get("gols_casa")
+    ga = res.get("gols_fora")
+    if gh is None:
+        gh = jogo.gols_casa
+    if ga is None:
+        ga = jogo.gols_fora
+    vp = res.get("vencedor_posicao")
+
+    hc = ac = ""
+    if gh is not None and ga is not None:
+        if int(gh) > int(ga) or vp == "home":
+            hc, ac = "bk-w", "bk-l"
+        elif int(ga) > int(gh) or vp == "away":
+            hc, ac = "bk-l", "bk-w"
+
+    hs = str(int(gh)) if gh is not None else "-"
+    as_ = str(int(ga)) if ga is not None else "-"
+    hf = _get_flag_emoji(home)
+    af = _get_flag_emoji(away)
+
+    cls = "bk-card" + (" bk-p" if home == "A definir" or away == "A definir" else "") + (" bk-fin" if final else "")
+    hn = html.escape(home[:15])
+    an = html.escape(away[:15])
+    return (
+        f'<div class="{cls}">'
+        f'<div class="bk-row {hc}"><span class="bk-f">{hf}</span>'
+        f'<span class="bk-n" title="{html.escape(home)}">{hn}</span>'
+        f'<span class="bk-s">{hs}</span></div>'
+        f'<div class="bk-row {ac}"><span class="bk-f">{af}</span>'
+        f'<span class="bk-n" title="{html.escape(away)}">{an}</span>'
+        f'<span class="bk-s">{as_}</span></div>'
+        f'</div>'
+    )
+
+
+def _bk_placeholder() -> str:
+    return (
+        '<div class="bk-card bk-p">'
+        '<div class="bk-row"><span class="bk-n">A definir</span><span class="bk-s">-</span></div>'
+        '<div class="bk-row"><span class="bk-n">A definir</span><span class="bk-s">-</span></div>'
+        '</div>'
+    )
+
+
+def _bk_col(label: str, games: List, resultados: Dict[int, Dict[str, Any]], chaveamento: Dict[int, Dict[str, Any]], side: str, expected: int) -> str:
+    all_games: List = list(games)
+    while len(all_games) < expected:
+        all_games.append(None)
+
+    parts = [f'<div class="bk-col"><div class="bk-col-lbl">{html.escape(label)}</div><div class="bk-col-games">']
+    pair_cls = f"bk-pair-{side}"
+
+    if expected <= 1:
+        g = all_games[0] if all_games else None
+        parts.append('<div class="bk-solo">')
+        parts.append(_bk_card(g, resultados, chaveamento) if g is not None else _bk_placeholder())
+        parts.append('</div>')
+    else:
+        for i in range(0, len(all_games), 2):
+            g1 = all_games[i] if i < len(all_games) else None
+            g2 = all_games[i + 1] if i + 1 < len(all_games) else None
+            parts.append(f'<div class="{pair_cls}">')
+            parts.append(_bk_card(g1, resultados, chaveamento) if g1 is not None else _bk_placeholder())
+            parts.append(_bk_card(g2, resultados, chaveamento) if g2 is not None else _bk_placeholder())
+            parts.append('</div>')
+
+    parts.append('</div></div>')
+    return ''.join(parts)
+
+
+def _render_chaveamento_visual(
+    jogos_por_fase: Dict[str, List],
+    resultados: Dict[int, Dict[str, Any]],
+    chaveamento: Dict[int, Dict[str, Any]],
+) -> None:
+    def sort_by(games: List) -> List:
+        return sorted(games, key=lambda j: (
+            getattr(j, "match_number", None) or 9999,
+            str(getattr(j, "data_jogo", "") or ""),
+            _chave_jogo(j),
+        ))
+
+    r32 = sort_by(jogos_por_fase.get("16-avos de Final", []))
+    r16 = sort_by(jogos_por_fase.get("Oitavas de Final", []))
+    qf  = sort_by(jogos_por_fase.get("Quartas de Final", []))
+    sf  = sort_by(jogos_por_fase.get("Semifinal", []))
+    fin = sort_by(jogos_por_fase.get("Final", []))
+    ter = sort_by(jogos_por_fase.get("Disputa de 3º Lugar", []))
+
+    r32_L, r32_R = r32[:8], r32[8:]
+    r16_L, r16_R = r16[:4], r16[4:]
+    qf_L,  qf_R  = qf[:2],  qf[2:]
+    sf_L = sf[:1]
+    sf_R = sf[1:2]
+
+    parts = [_bracket_css(), '<div class="bk-wrap"><div class="bk-bracket">']
+
+    # Left half: R32 → R16 → QF → SF (arms point right)
+    parts.append('<div class="bk-half-L">')
+    parts.append(_bk_col("16-avos", r32_L, resultados, chaveamento, "L", 8))
+    parts.append(_bk_col("Oitavas", r16_L, resultados, chaveamento, "L", 4))
+    parts.append(_bk_col("Quartas", qf_L,  resultados, chaveamento, "L", 2))
+    parts.append(_bk_col("Semi",    sf_L,  resultados, chaveamento, "L", 1))
+    parts.append('</div>')
+
+    # Center: Final + 3rd place
+    parts.append('<div class="bk-col-center"><div class="bk-center-top">')
+    parts.append('<div class="bk-trophy">🏆</div><div class="bk-fin-lbl">Final</div>')
+    parts.append(_bk_card(fin[0], resultados, chaveamento, final=True) if fin else _bk_placeholder())
+    parts.append('</div>')
+    if ter:
+        parts.append('<div class="bk-center-bot"><div class="bk-3rd-lbl">3° Lugar</div>')
+        parts.append(_bk_card(ter[0], resultados, chaveamento))
+        parts.append('</div>')
+    parts.append('</div>')
+
+    # Right half: SF | QF | R16 | R32 (listed closest-to-center first, arms point left)
+    parts.append('<div class="bk-half-R">')
+    parts.append(_bk_col("Semi",    sf_R,  resultados, chaveamento, "R", 1))
+    parts.append(_bk_col("Quartas", qf_R,  resultados, chaveamento, "R", 2))
+    parts.append(_bk_col("Oitavas", r16_R, resultados, chaveamento, "R", 4))
+    parts.append(_bk_col("16-avos", r32_R, resultados, chaveamento, "R", 8))
+    parts.append('</div>')
+
+    parts.append('</div></div>')
+    st.markdown(''.join(parts), unsafe_allow_html=True)
+
+
 def render_tela_simulacao() -> None:
     """Renderiza a pagina de simulacao isolada."""
     _aplicar_estilos_palpites()
@@ -345,7 +516,7 @@ def render_tela_simulacao() -> None:
     else:
         st.info("Nenhum jogo da Fase de Grupos cadastrado ainda.")
 
-    fases_ordenadas = [
+    fases_mata_mata = [
         "16-avos de Final",
         "Oitavas de Final",
         "Quartas de Final",
@@ -353,8 +524,19 @@ def render_tela_simulacao() -> None:
         "Disputa de 3º Lugar",
         "Final",
     ]
-    for fase in fases_ordenadas:
-        _render_fase_simples_simulacao(fase, jogos_por_fase.get(fase, []), resultados_atuais, chaveamento)
+    tem_mata_mata = any(jogos_por_fase.get(f) for f in fases_mata_mata)
+    if tem_mata_mata:
+        st.markdown("<div class='wc-phase-title'>Fase Eliminatória — Chaveamento</div>", unsafe_allow_html=True)
+        _render_chaveamento_visual(jogos_por_fase, resultados_atuais, chaveamento)
+
+        with st.expander("Editar placares do mata-mata", expanded=False):
+            for fase in fases_mata_mata:
+                jogos_fase = _ordenar_jogos_grupo(jogos_por_fase.get(fase, []))
+                if jogos_fase:
+                    st.markdown(f"#### {fase}")
+                    for jogo in jogos_fase:
+                        _render_jogo_simulado_card(jogo, resultados_atuais, chaveamento)
+                    st.divider()
 
     if jogos_por_fase.get(FASE_NAO_MAPEADA):
         _render_fase_simples_simulacao(FASE_NAO_MAPEADA, jogos_por_fase.get(FASE_NAO_MAPEADA, []), resultados_atuais, chaveamento)
