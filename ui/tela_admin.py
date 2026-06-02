@@ -38,7 +38,7 @@ from services.jogos_service import (
     importar_jogos_copa,
     listar_jogos_importados_debug,
 )
-from services.ranking_service import recalcular_ranking_automaticamente
+from services.ranking_service import _obter_campeao_vice_da_final, recalcular_ranking_automaticamente
 from utils.formatters import normalizar_texto
 from utils.team_assets import construir_mapa_logos_por_jogos, render_team_identity_html
 
@@ -325,10 +325,18 @@ def render_tela_admin(user_id: int) -> None:
 
     with aba_gabarito:
         st.subheader("Resultados oficiais")
+
+        campeao_auto, vice_auto = _obter_campeao_vice_da_final()
+        if campeao_auto:
+            st.info(
+                f"**Campeão detectado automaticamente da Final:** {campeao_auto}  \n"
+                f"**Vice:** {vice_auto or '—'}"
+            )
+        else:
+            st.info("Campeão e vice serão detectados automaticamente quando a Final for finalizada.")
+
         oficiais = carregar_resultados_oficiais()
         with st.form("form_gabarito_oficial"):
-            campeao = st.text_input("Campeao", value=oficiais.campeao)
-            vice = st.text_input("Vice", value=oficiais.vice)
             artilheiro = st.text_input("Artilheiro", value=oficiais.artilheiro)
             melhor_jogador = st.text_input("Melhor Jogador", value=oficiais.melhor_jogador)
             primeiro_grupo_a = st.text_input("1o colocado do Grupo A", value=oficiais.primeiro_grupo_a)
@@ -338,8 +346,6 @@ def render_tela_admin(user_id: int) -> None:
         if salvar:
             try:
                 salvar_resultados_oficiais(
-                    campeao=campeao,
-                    vice=vice,
                     artilheiro=artilheiro,
                     melhor_jogador=melhor_jogador,
                     primeiro_grupo_a=primeiro_grupo_a,
