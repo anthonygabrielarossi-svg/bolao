@@ -165,10 +165,14 @@ def _aplicar_estilos_palpites() -> None:
             min-width: 0;
         }
 
-        .wc-team-flag {
-            font-size: 1.15rem;
-            line-height: 1;
+        .wc-team-flag-img {
+            width: 1.6rem;
+            height: 1.07rem;
+            object-fit: cover;
+            border-radius: 2px;
             flex-shrink: 0;
+            display: inline-block;
+            vertical-align: middle;
         }
 
         .wc-team-logo {

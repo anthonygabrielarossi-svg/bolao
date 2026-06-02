@@ -5,9 +5,8 @@ from __future__ import annotations
 import html
 from typing import Any, Dict, Iterable, Optional
 
-from .flags import get_flag_emoji
 from .formatters import formatar_nome_time, normalizar_texto
-from .world_cup import canonicalizar_time
+from .world_cup import canonicalizar_time, get_flag_cdn_url
 
 
 def get_team_logo_url(team_id: Any) -> Optional[str]:
@@ -73,23 +72,24 @@ def render_team_identity_html(
     if not nome_exibicao:
         nome_exibicao = "-"
 
-    logo = logo_url or get_team_logo_url(team_id)
     nome_escapado = html.escape(nome_exibicao)
-    bandeira = get_flag_emoji(nome_time or nome_exibicao)
-    flag_html = f'<span class="wc-team-flag">{bandeira}</span>' if bandeira else ""
+    flag_url = get_flag_cdn_url(nome_time or nome_exibicao)
 
-    if logo:
-        logo_escapada = html.escape(str(logo))
+    if flag_url:
+        flag_img = (
+            f'<img class="wc-team-flag-img" src="{html.escape(flag_url)}" '
+            f'alt="{nome_escapado}" loading="lazy" '
+            'onerror="this.style.display:\'none\';" />'
+        )
         return (
             '<span class="wc-team-identity">'
-            f'{flag_html}'
+            f'{flag_img}'
             f'<span class="wc-team-name">{nome_escapado}</span>'
             "</span>"
         )
 
     return (
         '<span class="wc-team-identity">'
-        f'{flag_html}'
         f'<span class="wc-team-name">{nome_escapado}</span>'
         "</span>"
     )

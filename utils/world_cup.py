@@ -182,6 +182,57 @@ _TEAM_CODE_ALIASES: Dict[str, Tuple[str, ...]] = {
     "Côte d'Ivoire": ("CI", "CIV"),
 }
 
+_FLAG_CDN_BY_CANONICAL: Dict[str, str] = {
+    "Mexico": "mx",
+    "South Africa": "za",
+    "South Korea": "kr",
+    "Czechia": "cz",
+    "Canada": "ca",
+    "Qatar": "qa",
+    "Switzerland": "ch",
+    "Bosnia & Herzegovina": "ba",
+    "Brazil": "br",
+    "Morocco": "ma",
+    "Haiti": "ht",
+    "Scotland": "gb-sct",
+    "Australia": "au",
+    "Türkiye": "tr",
+    "USA": "us",
+    "Paraguay": "py",
+    "Germany": "de",
+    "Curaçao": "cw",
+    "Côte d'Ivoire": "ci",
+    "Ecuador": "ec",
+    "Netherlands": "nl",
+    "Japan": "jp",
+    "Sweden": "se",
+    "Tunisia": "tn",
+    "Spain": "es",
+    "Cabo Verde": "cv",
+    "Saudi Arabia": "sa",
+    "Uruguay": "uy",
+    "Belgium": "be",
+    "Egypt": "eg",
+    "Iran": "ir",
+    "New Zealand": "nz",
+    "France": "fr",
+    "Senegal": "sn",
+    "Iraq": "iq",
+    "Norway": "no",
+    "Argentina": "ar",
+    "Algeria": "dz",
+    "Austria": "at",
+    "Jordan": "jo",
+    "Portugal": "pt",
+    "DR Congo": "cd",
+    "Colombia": "co",
+    "Uzbekistan": "uz",
+    "England": "gb-eng",
+    "Croatia": "hr",
+    "Ghana": "gh",
+    "Panama": "pa",
+}
+
 _CANONICAL_BY_NORMALIZED: Dict[str, str] = {}
 _DISPLAY_BY_NORMALIZED: Dict[str, str] = {}
 _FLAG_BY_NORMALIZED: Dict[str, str] = {}
@@ -271,6 +322,23 @@ def inferir_grupo_por_times(time_casa: Optional[str], time_fora: Optional[str] =
     if grupo_casa and grupo_fora and grupo_casa == grupo_fora:
         return grupo_casa
     return None
+
+
+def get_flag_cdn_url(nome: Optional[str], width: int = 40) -> Optional[str]:
+    """Retorna a URL da bandeira do pais via flagcdn.com usando o nome canonico."""
+    if not nome:
+        return None
+    canonical = canonicalizar_time(nome) or str(nome).strip()
+    code = _FLAG_CDN_BY_CANONICAL.get(canonical)
+    if not code:
+        norm = normalizar_texto(canonical)
+        for name, c in _FLAG_CDN_BY_CANONICAL.items():
+            if normalizar_texto(name) == norm:
+                code = c
+                break
+    if not code:
+        return None
+    return f"https://flagcdn.com/w{width}/{code}.png"
 
 
 def inferir_grupo_copa(time_a: Optional[str], time_b: Optional[str] = None) -> Optional[str]:

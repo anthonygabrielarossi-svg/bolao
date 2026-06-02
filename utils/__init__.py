@@ -6,6 +6,7 @@ from .formatters import canonicalizar_time, formatar_nome_time, normalizar_texto
 from .team_assets import construir_mapa_logos_por_jogos, get_team_logo_url, render_team_identity_html
 from .world_cup import (
     WORLD_CUP_GROUPS_2026,
+    get_flag_cdn_url,
     obter_times_do_grupo,
     inferir_grupo_copa,
     inferir_grupo_por_times,
@@ -14,6 +15,7 @@ from .world_cup import (
 
 __all__ = [
     "WORLD_CUP_GROUPS_2026",
+    "get_flag_cdn_url",
     "canonicalizar_time",
     "bloquear_palpite_para_jogo",
     "construir_mapa_logos_por_jogos",
