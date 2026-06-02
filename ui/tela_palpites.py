@@ -25,7 +25,7 @@ from database import (
     FASES_VALIDAS_COPA,
 )
 from services.jogos_service import listar_jogos_por_fase
-from utils.datetime_utils import bloquear_palpite_para_jogo
+from utils.datetime_utils import bloquear_palpite_para_jogo, jogo_ja_comecou
 from utils.formatters import formatar_nome_time, normalizar_texto
 from utils.team_assets import construir_mapa_logos_por_jogos, render_team_identity_html
 from utils.world_cup import (
@@ -34,6 +34,18 @@ from utils.world_cup import (
     normalizar_grupo_copa,
     obter_times_do_grupo,
 )
+
+
+def _copa_ja_comecou(jogos: List) -> bool:
+    """Retorna True quando o primeiro jogo da Copa já iniciou."""
+    datas = [
+        getattr(j, "data_jogo", None)
+        for j in jogos
+        if getattr(j, "data_jogo", None)
+    ]
+    if not datas:
+        return False
+    return jogo_ja_comecou(min(datas))
 
 
 def _vencedor_previsto(time_a: str, time_b: str, palpite_a: int, palpite_b: int) -> str:
@@ -703,7 +715,7 @@ def _indice_opcao(opcoes: List[str], valor_salvo: str) -> int:
     return opcoes.index(valor_salvo) if valor_salvo in opcoes else 0
 
 
-def _render_select_time(label: str, opcoes: List[str], valor_salvo: str, key: str) -> str:
+def _render_select_time(label: str, opcoes: List[str], valor_salvo: str, key: str, *, disabled: bool = False) -> str:
     opcoes_select = _opcoes_com_vazio(opcoes)
     if valor_salvo and valor_salvo not in opcoes_select:
         st.caption(f"Valor salvo anteriormente fora da lista atual: {valor_salvo}")
@@ -713,11 +725,16 @@ def _render_select_time(label: str, opcoes: List[str], valor_salvo: str, key: st
         index=_indice_opcao(opcoes_select, valor_salvo),
         key=key,
         format_func=lambda valor: "Selecione..." if not valor else valor,
+        disabled=disabled,
     )
 
 
-def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
+def _render_palpites_especiais(user_id: int, palpites_especiais, *, bloqueado: bool = False) -> None:
     st.subheader("Palpites Especiais")
+
+    if bloqueado:
+        st.warning("A Copa já começou — palpites especiais encerrados.")
+
 
     times_por_grupo = obter_times_por_grupo()
     grupos_copa = list(WORLD_CUP_GROUPS_2026.keys())
@@ -737,6 +754,7 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
                 selecoes,
                 palpites_especiais.campeao if palpites_especiais else "",
                 "palpite_especial_campeao",
+                disabled=bloqueado,
             )
 
         opcoes_vice = [time for time in selecoes if time != campeao]
@@ -746,6 +764,7 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
                 opcoes_vice,
                 palpites_especiais.vice if palpites_especiais else "",
                 "palpite_especial_vice",
+                disabled=bloqueado,
             )
 
         st.markdown("#### Prêmios Individuais")
@@ -754,11 +773,13 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
             artilheiro = st.text_input(
                 "Artilheiro",
                 value=(palpites_especiais.artilheiro if palpites_especiais else ""),
+                disabled=bloqueado,
             )
         with col_melhor:
             melhor_jogador = st.text_input(
                 "Melhor jogador",
                 value=(palpites_especiais.melhor_jogador if palpites_especiais else ""),
+                disabled=bloqueado,
             )
 
         st.markdown("#### Classificados por Grupo")
@@ -786,6 +807,7 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
                         times_grupo,
                         salvos_grupo.get("primeiro", ""),
                         f"classificado_primeiro_{grupo.replace(' ', '_').lower()}",
+                        disabled=bloqueado,
                     )
 
                 opcoes_segundo = [time for time in times_grupo if time != primeiro]
@@ -795,6 +817,7 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
                         opcoes_segundo,
                         salvos_grupo.get("segundo", ""),
                         f"classificado_segundo_{grupo.replace(' ', '_').lower()}",
+                        disabled=bloqueado,
                     )
 
                 opcoes_terceiro = [time for time in times_grupo if time not in {primeiro, segundo}]
@@ -804,13 +827,14 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
                         opcoes_terceiro,
                         salvos_grupo.get("terceiro", ""),
                         f"classificado_terceiro_{grupo.replace(' ', '_').lower()}",
+                        disabled=bloqueado,
                     )
 
                 terceiro_classificado = st.checkbox(
                     "3º colocado classificado",
                     value=bool(salvos_grupo.get("terceiro_classificado", False)),
                     key=f"terceiro_classificado_{grupo.replace(' ', '_').lower()}",
-                    disabled=not terceiro,
+                    disabled=not terceiro or bloqueado,
                 )
 
                 classificados_por_grupo[grupo] = {
@@ -834,7 +858,7 @@ def _render_palpites_especiais(user_id: int, palpites_especiais) -> None:
         if st.button(
             "Salvar palpites especiais",
             key="salvar_palpites_especiais",
-            disabled=terceiros_classificados > 8,
+            disabled=bloqueado or terceiros_classificados > 8,
         ):
             if campeao and vice and campeao == vice:
                 st.error("Campeão e vice não podem ser a mesma seleção.")
@@ -882,6 +906,7 @@ def render_tela_palpites(user_id: int) -> None:
     jogos = listar_jogos_por_fase()
     palpites_partidas = carregar_palpites_partidas(user_id)
     palpites_especiais = carregar_palpites_especiais(user_id)
+    especiais_bloqueados = _copa_ja_comecou(jogos)
 
     if not jogos:
         st.info("Nenhum jogo cadastrado ainda.")
@@ -907,4 +932,4 @@ def render_tela_palpites(user_id: int) -> None:
         if jogos_por_fase.get(FASE_NAO_MAPEADA):
             _render_fase_simples(user_id, FASE_NAO_MAPEADA, jogos_por_fase.get(FASE_NAO_MAPEADA, []), palpites_partidas)
 
-    _render_palpites_especiais(user_id, palpites_especiais)
+    _render_palpites_especiais(user_id, palpites_especiais, bloqueado=especiais_bloqueados)
