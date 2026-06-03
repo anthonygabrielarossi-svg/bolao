@@ -38,7 +38,7 @@ from services.jogos_service import (
     importar_jogos_copa,
     listar_jogos_importados_debug,
 )
-from services.ranking_service import _obter_campeao_vice_da_final, _obter_classificacao_grupos_oficial, recalcular_ranking_automaticamente
+from services.ranking_service import _obter_campeao_vice_da_final, _obter_classificacao_grupos_oficial, detalhar_pontuacao_usuario, recalcular_ranking_automaticamente
 from utils.formatters import normalizar_texto
 from utils.team_assets import construir_mapa_logos_por_jogos, render_team_identity_html
 
@@ -308,6 +308,34 @@ def render_tela_admin(user_id: int) -> None:
                     ]
                 )
                 st.dataframe(df_ranking, use_container_width=True, hide_index=True)
+
+        st.divider()
+        st.subheader("Diagnóstico de pontuação por usuário")
+        st.caption("Mostra de onde vêm os pontos de cada usuário (útil para depuração).")
+        usuarios_diag = listar_usuarios()
+        nomes_usuarios = {u.nome: u.id for u in usuarios_diag if u.id is not None}
+        usuario_selecionado = st.selectbox("Selecionar usuário", options=list(nomes_usuarios.keys()), key="diag_usuario_sel")
+        if st.button("Ver detalhes de pontuação", key="btn_diag_pontuacao"):
+            uid = nomes_usuarios.get(usuario_selecionado)
+            if uid is not None:
+                try:
+                    detalhes = detalhar_pontuacao_usuario(int(uid))
+                except Exception as exc:
+                    st.error(f"Erro ao detalhar pontuação: {exc}")
+                else:
+                    st.write(f"**Jogos finalizados no banco:** {detalhes['jogos_finalizados']}")
+                    st.write(f"**Total partidas:** {detalhes['total_partidas']} pts · **Total especiais:** {detalhes['total_especiais']} pts")
+                    if detalhes["partidas"]:
+                        st.write("**Pontos por partida:**")
+                        st.dataframe(pd.DataFrame(detalhes["partidas"]), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Nenhum ponto de partida.")
+                    especiais_com_palpite = [e for e in detalhes["especiais"] if e["palpite"]]
+                    if especiais_com_palpite:
+                        st.write("**Palpites especiais:**")
+                        st.dataframe(pd.DataFrame(especiais_com_palpite), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Nenhum palpite especial cadastrado.")
 
         if st.button("Sincronizar placares ao vivo com banco"):
             progresso = st.progress(0)

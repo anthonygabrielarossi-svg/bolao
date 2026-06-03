@@ -321,6 +321,100 @@ def recalcular_ranking_automaticamente(executed_by_user_id: Optional[int] = None
     return ranking_calculado
 
 
+def detalhar_pontuacao_usuario(user_id: int) -> Dict[str, Any]:
+    """Retorna um breakdown detalhado de onde vem cada ponto do usuario."""
+    palpites_partidas = {item.match_id: item for item in listar_palpites_partidas_usuario(user_id)}
+    palpites_especiais = carregar_palpites_especiais(user_id)
+    resultados_oficiais = carregar_resultados_oficiais()
+    jogos_finalizados = {
+        jogo.id: jogo
+        for jogo in listar_jogos()
+        if jogo.finalizado
+        and jogo.placar_a is not None
+        and jogo.placar_b is not None
+        and jogo.id is not None
+        and jogo.competicao == COMPETICAO_PADRAO
+    }
+
+    detalhes_partidas = []
+    for match_id, palpite in palpites_partidas.items():
+        jogo = jogos_finalizados.get(match_id)
+        if not jogo:
+            continue
+        pts = pontuar_partida(palpite.palpite_a, palpite.palpite_b, int(jogo.placar_a), int(jogo.placar_b))
+        detalhes_partidas.append({
+            "jogo": f"{jogo.time_a} x {jogo.time_b}",
+            "palpite": f"{palpite.palpite_a}x{palpite.palpite_b}",
+            "placar_real": f"{jogo.placar_a}x{jogo.placar_b}",
+            "pontos": pts,
+        })
+
+    campeao_auto, vice_auto = _obter_campeao_vice_da_final(list(jogos_finalizados.values()) or None)
+    classificacao_oficial = _obter_classificacao_grupos_oficial(list(jogos_finalizados.values()) if jogos_finalizados else None)
+    terceiros_ok = {
+        normalizar_texto(canonicalizar_time(t) or t)
+        for t in classificacao_oficial.get("_terceiros_classificados", [])
+    }
+
+    detalhes_especiais = []
+    if palpites_especiais:
+        for chave, oficial in [
+            ("campeao", campeao_auto),
+            ("vice", vice_auto),
+            ("artilheiro", getattr(resultados_oficiais, "artilheiro", "") or ""),
+            ("melhor_jogador", getattr(resultados_oficiais, "melhor_jogador", "") or ""),
+        ]:
+            palpite_val = getattr(palpites_especiais, chave, "") or ""
+            pts = pontuar_palpite_especial(chave, palpite_val, oficial)
+            detalhes_especiais.append({
+                "categoria": chave,
+                "palpite": palpite_val,
+                "oficial": oficial,
+                "pontos": pts,
+            })
+
+        bruto = getattr(palpites_especiais, "classificados_grupos", "") or ""
+        if bruto:
+            try:
+                classificados_palpite = json.loads(bruto)
+            except (json.JSONDecodeError, ValueError):
+                classificados_palpite = {}
+            for grupo, valores in classificados_palpite.items():
+                if not isinstance(valores, dict):
+                    continue
+                info_oficial = classificacao_oficial.get(grupo, {})
+                for pos, chave_pos in [("primeiro", "primeiro_grupo"), ("segundo", "segundo_grupo")]:
+                    palpite_val = valores.get(pos, "") or ""
+                    oficial_val = info_oficial.get(pos, "")
+                    if palpite_val or oficial_val:
+                        pts = pontuar_palpite_especial(chave_pos, palpite_val, oficial_val)
+                        if pts > 0 or palpite_val:
+                            detalhes_especiais.append({
+                                "categoria": f"{pos}_{grupo}",
+                                "palpite": palpite_val,
+                                "oficial": oficial_val,
+                                "pontos": pts,
+                            })
+                if terceiros_ok and valores.get("terceiro_classificado") and valores.get("terceiro"):
+                    chave_t = normalizar_texto(canonicalizar_time(valores["terceiro"]) or valores["terceiro"])
+                    pts_t = PESOS_ESPECIAIS["terceiro_classificado"] if chave_t in terceiros_ok else 0
+                    if pts_t > 0 or valores.get("terceiro"):
+                        detalhes_especiais.append({
+                            "categoria": f"terceiro_{grupo}",
+                            "palpite": valores["terceiro"],
+                            "oficial": ", ".join(classificacao_oficial.get("_terceiros_classificados", [])),
+                            "pontos": pts_t,
+                        })
+
+    return {
+        "jogos_finalizados": len(jogos_finalizados),
+        "partidas": detalhes_partidas,
+        "especiais": detalhes_especiais,
+        "total_partidas": sum(d["pontos"] for d in detalhes_partidas),
+        "total_especiais": sum(d["pontos"] for d in detalhes_especiais),
+    }
+
+
 def listar_ranking_atual() -> List[PontuacaoUsuario]:
     """Retorna o ranking salvo no banco de dados."""
     return [
