@@ -97,9 +97,10 @@ def _obter_classificacao_grupos_oficial(jogos: Optional[List] = None) -> Dict[st
 
     for grupo, times in por_grupo.items():
         ordenados = sorted(times, key=lambda t: t.posicao)
+        grupo_tem_jogos = len(ordenados) > 0 and ordenados[0].jogos > 0
         resultado[grupo] = {
-            "primeiro": ordenados[0].time_nome if len(ordenados) > 0 else "",
-            "segundo": ordenados[1].time_nome if len(ordenados) > 1 else "",
+            "primeiro": ordenados[0].time_nome if grupo_tem_jogos else "",
+            "segundo": ordenados[1].time_nome if grupo_tem_jogos and len(ordenados) > 1 else "",
         }
         if len(ordenados) > 2 and ordenados[2].jogos > 0:
             terceiros.append(ordenados[2])
