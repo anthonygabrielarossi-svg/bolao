@@ -283,6 +283,32 @@ def render_tela_admin(user_id: int) -> None:
                 else:
                     st.info("Nenhum jogo finalizado encontrado; ranking nao foi recalculado.")
 
+        st.divider()
+        st.subheader("Recalcular ranking")
+        st.caption("Recalcula a pontuação de todos os usuários com base nos resultados finalizados.")
+        if st.button("Recalcular ranking agora"):
+            try:
+                ranking = recalcular_ranking_automaticamente(executed_by_user_id=user_id)
+            except PermissionError as exc:
+                st.error(str(exc))
+            except DatabaseError as exc:
+                st.error(f"Erro ao recalcular ranking: {exc}")
+            else:
+                st.success(f"Ranking recalculado para {len(ranking)} usuários.")
+                df_ranking = pd.DataFrame(
+                    [
+                        {
+                            "Posição": i + 1,
+                            "Nome": item.nome,
+                            "Partidas": item.pontos_partidas,
+                            "Especiais": item.pontos_especiais,
+                            "Total": item.pontuacao_total,
+                        }
+                        for i, item in enumerate(ranking)
+                    ]
+                )
+                st.dataframe(df_ranking, use_container_width=True, hide_index=True)
+
         if st.button("Sincronizar placares ao vivo com banco"):
             progresso = st.progress(0)
 
