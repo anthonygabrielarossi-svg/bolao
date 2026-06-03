@@ -167,7 +167,7 @@ O prêmio é formado pela soma das inscrições dos participantes aprovados (R$ 
 | 2º lugar | **30%** |
 | 3º lugar | **10%** |
 
-Em caso de empate no ranking, a posição é desempatada pela ordem alfabética do nome.
+Em caso de empate no ranking, a posição é desempatada pela quantidade de placas exatos acertados.
         """
     )
 
@@ -177,7 +177,6 @@ Em caso de empate no ranking, a posição é desempatada pela ordem alfabética 
 - Os palpites de partida ficam **bloqueados 1 hora antes do início do jogo**.
 - Palpites especiais (grupos, campeão, artilheiro etc.) podem ser alterados **até o início do primeiro jogo da Copa**.
 - O ranking é atualizado pelo administrador após cada rodada de jogos finalizados.
-- Em caso de dúvidas ou disputas, a decisão do administrador é final.
         """
     )
 
