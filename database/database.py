@@ -1250,10 +1250,10 @@ def listar_usuarios_ranking() -> List[Usuario]:
             SELECT id, nome, senha, pontuacao_total, is_admin, aprovado,
                    recuperacao_senha_solicitada, troca_senha_liberada
             FROM Usuarios
-            WHERE aprovado = ?
+            WHERE aprovado = ? AND is_admin = ?
             ORDER BY pontuacao_total DESC, nome ASC
             """,
-            (True,),
+            (True, False),
         ).fetchall()
     return [_row_to_usuario(row) for row in rows]
 
