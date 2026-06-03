@@ -1243,13 +1243,14 @@ def listar_usuarios() -> List[Usuario]:
 
 
 def listar_usuarios_ranking() -> List[Usuario]:
-    """Retorna os usuarios ordenados pela pontuacao total."""
+    """Retorna apenas usuarios aprovados ordenados pela pontuacao total."""
     with get_connection() as conn:
         rows = conn.execute(
             """
             SELECT id, nome, senha, pontuacao_total, is_admin, aprovado,
                    recuperacao_senha_solicitada, troca_senha_liberada
             FROM Usuarios
+            WHERE aprovado = 1
             ORDER BY pontuacao_total DESC, nome ASC
             """
         ).fetchall()
