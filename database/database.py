@@ -1242,7 +1242,6 @@ def listar_usuarios() -> List[Usuario]:
     return [_row_to_usuario(row) for row in rows]
 
 
-@st.cache_data(ttl=60, show_spinner=False)
 def listar_usuarios_ranking() -> List[Usuario]:
     """Retorna os usuarios ordenados pela pontuacao total."""
     with get_connection() as conn:
