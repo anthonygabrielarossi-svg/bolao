@@ -28,6 +28,7 @@ SEASONS_ENDPOINT = urljoin(BASE_URL, "seasons/")
 EVENTS_ENDPOINT = urljoin(BASE_URL, "events/")
 EVENT_DETAIL_ENDPOINT = urljoin(BASE_URL, "events/{event_id}/")
 LIVE_ENDPOINT = urljoin(BASE_URL, "live/")
+PLAYERS_ENDPOINT = urljoin(BASE_URL, "players/")
 DEFAULT_TIMEOUT = 30
 
 
@@ -788,6 +789,63 @@ def buscar_jogos_ao_vivo(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]
     return jogos
 
 
+def buscar_jogadores_copa(
+    progress_callback=None,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> List[Dict[str, Any]]:
+    """Busca jogadores de todas as selecoes da Copa via API.
+
+    Para cada time encontrado nos eventos, consulta /players/?national_team={id}.
+    Chama progress_callback(atual, total) a cada time processado, se fornecido.
+    """
+    eventos = buscar_todos_eventos_copa(timeout=timeout)
+
+    teams: Dict[int, str] = {}
+    for evento in eventos:
+        for prefix in ("home", "away"):
+            obj = evento.get(f"{prefix}_team_obj") or {}
+            if isinstance(obj, dict):
+                team_id = _to_int_or_none(obj.get("id"))
+                team_name = _texto_dict(obj, "name", "short_name")
+                if team_id and team_name and team_id not in teams:
+                    teams[team_id] = team_name
+
+    settings.debug_log(f"[BSD] {len(teams)} selecoes encontradas nos eventos da Copa.")
+
+    jogadores: List[Dict[str, Any]] = []
+    total = len(teams)
+
+    for i, (team_id, team_name) in enumerate(teams.items()):
+        if progress_callback:
+            progress_callback(i, total)
+        try:
+            players = _coletar_paginado(
+                PLAYERS_ENDPOINT,
+                params={"national_team": team_id},
+                timeout=timeout,
+                rotulo=f"players national_team={team_id}",
+            )
+        except BSDAPIError as exc:
+            settings.debug_log(f"[BSD] Falha ao buscar jogadores de {team_name}: {exc}")
+            continue
+
+        for p in players:
+            nome = (p.get("name") or p.get("short_name") or "").strip()
+            if nome:
+                jogadores.append({
+                    "nome": nome,
+                    "posicao": p.get("position") or "",
+                    "time": team_name,
+                    "api_id": _to_int_or_none(p.get("id")),
+                })
+
+    if progress_callback:
+        progress_callback(total, total)
+
+    settings.debug_log(f"[BSD] {len(jogadores)} jogadores importados de {total} selecoes.")
+    return jogadores
+
+
 def buscar_jogos_ao_vivo_teste(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]:
     """Busca jogos ao vivo em modo de teste sem filtrar por league=27."""
     eventos = _coletar_paginado(
@@ -836,6 +894,7 @@ __all__ = [
     "WORLD_CUP_NAME",
     "WORLD_CUP_TZ",
     "buscar_detalhes_jogo",
+    "buscar_jogadores_copa",
     "buscar_jogos_copa",
     "buscar_jogos_ao_vivo",
     "buscar_jogos_ao_vivo_teste",

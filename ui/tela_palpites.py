@@ -19,6 +19,7 @@ from database import (
     FASE_NAO_MAPEADA,
     carregar_palpites_especiais,
     carregar_palpites_partidas,
+    listar_jogadores_copa,
     obter_times_por_grupo,
     salvar_palpites_especiais,
     salvar_palpites_partida,
@@ -768,19 +769,48 @@ def _render_palpites_especiais(user_id: int, palpites_especiais, *, bloqueado: b
             )
 
         st.markdown("#### Prêmios Individuais")
+        jogadores_lista = listar_jogadores_copa()
+        opcoes_jogadores = [""] + jogadores_lista
+        artilheiro_salvo = (palpites_especiais.artilheiro if palpites_especiais else "") or ""
+        melhor_salvo = (palpites_especiais.melhor_jogador if palpites_especiais else "") or ""
+
         col_artilheiro, col_melhor = st.columns(2)
         with col_artilheiro:
-            artilheiro = st.text_input(
-                "Artilheiro",
-                value=(palpites_especiais.artilheiro if palpites_especiais else ""),
-                disabled=bloqueado,
-            )
+            if jogadores_lista:
+                if artilheiro_salvo and artilheiro_salvo not in opcoes_jogadores:
+                    st.caption(f"Palpite anterior: {artilheiro_salvo}")
+                artilheiro = _render_select_time(
+                    "Artilheiro",
+                    jogadores_lista,
+                    artilheiro_salvo,
+                    "palpite_especial_artilheiro",
+                    disabled=bloqueado,
+                )
+            else:
+                artilheiro = st.text_input(
+                    "Artilheiro",
+                    value=artilheiro_salvo,
+                    disabled=bloqueado,
+                    help="Importe os jogadores no painel admin para habilitar a lista.",
+                )
         with col_melhor:
-            melhor_jogador = st.text_input(
-                "Melhor jogador",
-                value=(palpites_especiais.melhor_jogador if palpites_especiais else ""),
-                disabled=bloqueado,
-            )
+            if jogadores_lista:
+                if melhor_salvo and melhor_salvo not in opcoes_jogadores:
+                    st.caption(f"Palpite anterior: {melhor_salvo}")
+                melhor_jogador = _render_select_time(
+                    "Melhor jogador",
+                    jogadores_lista,
+                    melhor_salvo,
+                    "palpite_especial_melhor_jogador",
+                    disabled=bloqueado,
+                )
+            else:
+                melhor_jogador = st.text_input(
+                    "Melhor jogador",
+                    value=melhor_salvo,
+                    disabled=bloqueado,
+                    help="Importe os jogadores no painel admin para habilitar a lista.",
+                )
 
         st.markdown("#### Classificados por Grupo")
         tabs = st.tabs(grupos_copa)

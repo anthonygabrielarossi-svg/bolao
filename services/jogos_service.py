@@ -16,8 +16,10 @@ from database import (
     COMPETICAO_PADRAO,
     FASE_NAO_MAPEADA,
     Jogo,
+    contar_jogadores_copa,
     get_connection,
     listar_jogos,
+    salvar_jogadores_copa,
     salvar_ou_atualizar_jogo,
     salvar_jogos_em_lote,
     usuario_eh_admin,
@@ -28,6 +30,7 @@ from database import (
 from .api_service import (
     BSDAPIError,
     buscar_detalhes_jogo,
+    buscar_jogadores_copa,
     buscar_todos_eventos_copa,
     buscar_todos_eventos_copa_com_resumo,
     identificar_placeholder_bracket,
@@ -145,6 +148,17 @@ def _jogo_sincronizado_igual(existente: Jogo, novo: Jogo) -> bool:
         and existente.gols_fora == valores_finais["gols_fora"]
         and _normalizar_texto(getattr(existente, "estadio", "")) == _normalizar_texto(valores_finais["estadio"])
     )
+
+
+def importar_jogadores_copa(
+    executed_by_user_id: Optional[int] = None,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> int:
+    """Importa jogadores de todas as selecoes da Copa e salva no banco."""
+    _exigir_admin(executed_by_user_id)
+    jogadores = buscar_jogadores_copa(progress_callback=progress_callback)
+    salvar_jogadores_copa(jogadores)
+    return len(jogadores)
 
 
 def importar_jogos_copa(

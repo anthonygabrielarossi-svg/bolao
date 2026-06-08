@@ -18,7 +18,9 @@ from database import (
     aprovar_usuario,
     carregar_classificacao_grupos,
     carregar_resultados_oficiais,
+    contar_jogadores_copa,
     get_database_kind,
+    listar_jogadores_copa,
     listar_usuarios,
     listar_jogos,
     liberar_troca_senha_usuario,
@@ -35,6 +37,7 @@ from services.jogos_service import (
     corrigir_fases_copa,
     corrigir_grupos_fase_de_grupos,
     gerar_mata_mata_automatico,
+    importar_jogadores_copa,
     importar_jogos_copa,
     listar_jogos_importados_debug,
 )
@@ -174,6 +177,36 @@ def render_tela_admin(user_id: int) -> None:
                 )
                 st.dataframe(df_resumo_fases, use_container_width=True, hide_index=True)
                 st.json(resumo_fases["confirmacoes"])
+
+        st.divider()
+        st.subheader("Jogadores da Copa")
+        total_jogadores = contar_jogadores_copa()
+        st.caption(f"Jogadores importados: **{total_jogadores}**")
+        if st.button("Importar jogadores da Copa"):
+            progresso = st.progress(0)
+            status_text = st.empty()
+
+            def _progresso_jogadores(atual: int, total: int) -> None:
+                pct = int((atual / total) * 100) if total else 100
+                progresso.progress(min(max(pct, 0), 100))
+                status_text.caption(f"Importando seleção {atual}/{total}...")
+
+            try:
+                with st.spinner("Buscando jogadores de todas as seleções..."):
+                    total_imp = importar_jogadores_copa(
+                        executed_by_user_id=user_id,
+                        progress_callback=_progresso_jogadores,
+                    )
+            except BSDAPIError as exc:
+                st.warning(f"Erro na API ao importar jogadores: {exc}")
+            except PermissionError as exc:
+                st.error(str(exc))
+            except DatabaseError as exc:
+                st.error(f"Erro ao salvar jogadores: {exc}")
+            else:
+                progresso.progress(100)
+                status_text.empty()
+                st.success(f"{total_imp} jogadores importados com sucesso.")
 
         if st.button("Corrigir grupos da fase de grupos"):
             try:
@@ -402,9 +435,30 @@ def render_tela_admin(user_id: int) -> None:
         )
 
         oficiais = carregar_resultados_oficiais()
+        jogadores_lista = listar_jogadores_copa()
+        opcoes_jogadores = [""] + jogadores_lista
+
+        def _indice_jogador(opcoes: list, valor: str) -> int:
+            return opcoes.index(valor) if valor and valor in opcoes else 0
+
         with st.form("form_gabarito_oficial"):
-            artilheiro = st.text_input("Artilheiro", value=oficiais.artilheiro)
-            melhor_jogador = st.text_input("Melhor Jogador", value=oficiais.melhor_jogador)
+            if jogadores_lista:
+                artilheiro = st.selectbox(
+                    "Artilheiro",
+                    opcoes_jogadores,
+                    index=_indice_jogador(opcoes_jogadores, oficiais.artilheiro or ""),
+                    format_func=lambda v: "Selecione..." if not v else v,
+                )
+                melhor_jogador = st.selectbox(
+                    "Melhor Jogador",
+                    opcoes_jogadores,
+                    index=_indice_jogador(opcoes_jogadores, oficiais.melhor_jogador or ""),
+                    format_func=lambda v: "Selecione..." if not v else v,
+                )
+            else:
+                st.info("Importe os jogadores primeiro para habilitar a seleção.")
+                artilheiro = st.text_input("Artilheiro", value=oficiais.artilheiro or "")
+                melhor_jogador = st.text_input("Melhor Jogador", value=oficiais.melhor_jogador or "")
             salvar = st.form_submit_button("Salvar gabarito oficial")
 
         if salvar:

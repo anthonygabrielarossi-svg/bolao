@@ -495,6 +495,14 @@ def init_db() -> None:
                 usado INTEGER NOT NULL DEFAULT 0 CHECK (usado IN (0, 1)),
                 FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS Jogadores_Copa (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                posicao TEXT,
+                time TEXT,
+                api_id INTEGER UNIQUE
+            );
             """
         else:
             schema_sql = """
@@ -606,6 +614,14 @@ def init_db() -> None:
                 expira_em TEXT NOT NULL,
                 usado BOOLEAN NOT NULL DEFAULT FALSE,
                 FOREIGN KEY (user_id) REFERENCES Usuarios (id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS Jogadores_Copa (
+                id SERIAL PRIMARY KEY,
+                nome TEXT NOT NULL,
+                posicao TEXT,
+                time TEXT,
+                api_id INTEGER UNIQUE
             );
             """
 
@@ -1240,6 +1256,45 @@ def listar_usuarios() -> List[Usuario]:
             """
         ).fetchall()
     return [_row_to_usuario(row) for row in rows]
+
+
+def salvar_jogadores_copa(jogadores: List[Dict]) -> None:
+    """Substitui todos os jogadores importados da Copa."""
+    if not jogadores:
+        return
+    with get_connection() as conn:
+        conn.execute("DELETE FROM Jogadores_Copa")
+        conn.executemany(
+            "INSERT INTO Jogadores_Copa (nome, posicao, time, api_id) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    str(j.get("nome", "")),
+                    str(j.get("posicao", "") or ""),
+                    str(j.get("time", "") or ""),
+                    j.get("api_id"),
+                )
+                for j in jogadores
+                if j.get("nome")
+            ],
+        )
+        conn.commit()
+    _clear_data_cache()
+
+
+def listar_jogadores_copa() -> List[str]:
+    """Retorna nomes dos jogadores importados ordenados alfabeticamente."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT nome FROM Jogadores_Copa ORDER BY nome ASC"
+        ).fetchall()
+    return [_row_get(row, "nome") for row in rows]
+
+
+def contar_jogadores_copa() -> int:
+    """Retorna o total de jogadores importados."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS total FROM Jogadores_Copa").fetchone()
+    return int(_row_get(row, "total") or 0)
 
 
 def listar_usuarios_ranking() -> List[Usuario]:
