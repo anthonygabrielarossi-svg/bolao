@@ -358,6 +358,28 @@ def render_tela_ao_vivo() -> None:
             opacity: 0.55;
             font-weight: 700;
         }
+        .wc-live-card .wc-team-identity {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.4rem;
+        }
+        .wc-live-card .wc-live-team-right .wc-team-identity {
+            align-items: flex-end;
+        }
+        .wc-live-card .wc-team-flag-img {
+            width: 3.5rem;
+            height: 2.35rem;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+            flex-shrink: 0;
+        }
+        .wc-live-card .wc-team-name {
+            font-size: 1rem;
+            font-weight: 700;
+            line-height: 1.2;
+            word-break: break-word;
+            max-width: 100%;
+        }
         .wc-palpite-card {
             background: rgba(255,255,255,0.04);
             border: 1px solid rgba(255,255,255,0.08);
