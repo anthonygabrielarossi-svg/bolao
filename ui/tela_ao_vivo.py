@@ -130,24 +130,64 @@ def _render_pill(labels: List[str]) -> str:
     )
 
 
-def _render_palpites_jogo(jogo: Dict[str, Any], palpites: List[Dict[str, Any]]) -> None:
+def _mesmo_resultado(gc: int, gf: int, pc: int, pf: int) -> bool:
+    def _sign(n: int) -> int:
+        return 1 if n > 0 else (-1 if n < 0 else 0)
+    return _sign(gc - gf) == _sign(pc - pf)
+
+
+def _render_palpites_jogo(
+    jogo: Dict[str, Any],
+    palpites: List[Dict[str, Any]],
+    status_raw: str,
+) -> None:
+    # Só exibe palpites após o jogo ter iniciado
+    if status_raw not in _STATUS_AO_VIVO and status_raw not in _STATUS_FINALIZADO:
+        return
+
     home_nome = formatar_nome_time(jogo.get("time_casa") or jogo.get("home_team") or "-")
     away_nome = formatar_nome_time(jogo.get("time_fora") or jogo.get("away_team") or "-")
+    placar_casa_real = jogo.get("placar_casa")
+    placar_fora_real = jogo.get("placar_fora")
+    tem_placar = placar_casa_real is not None and placar_fora_real is not None
+    eh_encerrado = status_raw in _STATUS_FINALIZADO
 
-    with st.expander("Ver palpites", expanded=False):
-        st.markdown("### Palpites")
+    n = len(palpites)
+    label_expander = f"Ver palpites ({n})" if n > 0 else "Ver palpites (nenhum)"
+
+    with st.expander(label_expander, expanded=False):
         if not palpites:
             st.caption("Nenhum palpite registrado para este jogo.")
             return
 
+        cards_html: List[str] = []
         for palpite in palpites:
-            nome = _html_escape(palpite.get("nome"))
+            nome = _html_escape(palpite.get("nome") or "-")
             gols_casa = int(palpite.get("gols_casa") or 0)
             gols_fora = int(palpite.get("gols_fora") or 0)
-            st.markdown(
-                f"**{nome}**: {_html_escape(home_nome)} {gols_casa} x {gols_fora} {_html_escape(away_nome)}",
-                unsafe_allow_html=True,
+
+            badge = ""
+            if tem_placar:
+                p_casa = int(placar_casa_real)
+                p_fora = int(placar_fora_real)
+                if gols_casa == p_casa and gols_fora == p_fora:
+                    badge = '<span class="wc-palpite-badge wc-palpite-exato">Placar Exato ✓</span>'
+                elif _mesmo_resultado(gols_casa, gols_fora, p_casa, p_fora):
+                    badge = '<span class="wc-palpite-badge wc-palpite-resultado">Resultado ✓</span>'
+                elif eh_encerrado:
+                    badge = '<span class="wc-palpite-badge wc-palpite-errou">Errou</span>'
+
+            cards_html.append(
+                f'<div class="wc-palpite-card">'
+                f'<div class="wc-palpite-nome">{nome}{badge}</div>'
+                f'<div class="wc-palpite-placar">'
+                f'<span class="wc-palpite-time">{_html_escape(home_nome)}</span>'
+                f'<span class="wc-palpite-score">{gols_casa} x {gols_fora}</span>'
+                f'<span class="wc-palpite-time wc-palpite-time-right">{_html_escape(away_nome)}</span>'
+                f'</div></div>'
             )
+
+        st.markdown("\n".join(cards_html), unsafe_allow_html=True)
 
 
 def _render_jogo_ao_vivo_card(jogo: Dict[str, Any], palpites: Optional[List[Dict[str, Any]]] = None) -> None:
@@ -218,7 +258,7 @@ def _render_jogo_ao_vivo_card(jogo: Dict[str, Any], palpites: Optional[List[Dict
         ),
         unsafe_allow_html=True,
     )
-    _render_palpites_jogo(jogo, palpites or [])
+    _render_palpites_jogo(jogo, palpites or [], status_raw)
 
 
 def _render_secao(titulo: str, jogos: List[Dict[str, Any]], palpites_por_api_id: Dict[int, List]) -> None:
@@ -317,6 +357,73 @@ def render_tela_ao_vivo() -> None:
         .wc-live-vs {
             opacity: 0.55;
             font-weight: 700;
+        }
+        .wc-palpite-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 0.65rem 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        .wc-palpite-nome {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 700;
+            font-size: 0.88rem;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 0.45rem;
+        }
+        .wc-palpite-placar {
+            display: grid;
+            grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
+            gap: 0.5rem;
+            align-items: center;
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.7);
+        }
+        .wc-palpite-score {
+            font-size: 1.1rem;
+            font-weight: 800;
+            text-align: center;
+            padding: 0.1rem 0.5rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.95);
+            white-space: nowrap;
+        }
+        .wc-palpite-time {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .wc-palpite-time-right {
+            text-align: right;
+        }
+        .wc-palpite-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.12rem 0.5rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .wc-palpite-exato {
+            background: rgba(34,197,94,0.18);
+            border: 1px solid rgba(34,197,94,0.4);
+            color: #86efac;
+        }
+        .wc-palpite-resultado {
+            background: rgba(234,179,8,0.18);
+            border: 1px solid rgba(234,179,8,0.4);
+            color: #fde047;
+        }
+        .wc-palpite-errou {
+            background: rgba(239,68,68,0.1);
+            border: 1px solid rgba(239,68,68,0.2);
+            color: rgba(255,255,255,0.4);
         }
         </style>
         """,
