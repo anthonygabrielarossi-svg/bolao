@@ -846,6 +846,47 @@ def buscar_jogadores_copa(
     return jogadores
 
 
+def buscar_jogos_do_dia(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]:
+    """Busca todos os jogos da Copa do Mundo agendados para hoje."""
+    from datetime import datetime, date as _date
+    try:
+        from zoneinfo import ZoneInfo
+        hoje = datetime.now(ZoneInfo(WORLD_CUP_TZ)).strftime("%Y-%m-%d")
+    except Exception:
+        hoje = _date.today().isoformat()
+
+    season = obter_season_copa(timeout=timeout)
+    eventos: List[Dict[str, Any]] = []
+
+    if season is not None:
+        season_id = _to_int_or_none(season.get("id"))
+        if season_id is not None:
+            try:
+                eventos = _coletar_paginado(
+                    EVENTS_ENDPOINT,
+                    params={"season": season_id, "date_from": hoje, "date_to": hoje, "tz": WORLD_CUP_TZ},
+                    timeout=timeout,
+                    rotulo=f"events hoje season={season_id}",
+                )
+            except BSDAPIError as exc:
+                settings.debug_log(f"[BSD] Erro ao buscar jogos do dia por season: {exc}")
+
+    if not eventos:
+        try:
+            eventos = _coletar_paginado(
+                EVENTS_ENDPOINT,
+                params={"league": WORLD_CUP_LEAGUE_ID, "date_from": hoje, "date_to": hoje, "tz": WORLD_CUP_TZ},
+                timeout=timeout,
+                rotulo="events hoje fallback",
+            )
+        except BSDAPIError as exc:
+            settings.debug_log(f"[BSD] Erro no fallback de buscar jogos do dia: {exc}")
+
+    jogos = [_normalizar_evento_ao_vivo(ev) for ev in eventos if isinstance(ev, dict)]
+    settings.debug_log(f"[BSD] {len(jogos)} jogos da Copa para hoje ({hoje}).")
+    return jogos
+
+
 def buscar_jogos_ao_vivo_teste(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]:
     """Busca jogos ao vivo em modo de teste sem filtrar por league=27."""
     eventos = _coletar_paginado(
@@ -898,6 +939,7 @@ __all__ = [
     "buscar_jogos_copa",
     "buscar_jogos_ao_vivo",
     "buscar_jogos_ao_vivo_teste",
+    "buscar_jogos_do_dia",
     "buscar_todos_eventos_copa_com_resumo",
     "buscar_todos_eventos_copa",
     "identificar_placeholder_bracket",

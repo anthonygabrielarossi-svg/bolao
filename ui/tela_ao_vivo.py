@@ -15,10 +15,25 @@ except ImportError:  # pragma: no cover - fallback compativel
 
 from settings import TEST_MODE_AO_VIVO
 from database import listar_palpites_por_api_ids
-from services.api_service import BSDAPIError, buscar_jogos_ao_vivo, buscar_jogos_ao_vivo_teste
+from services.api_service import BSDAPIError, buscar_jogos_ao_vivo, buscar_jogos_ao_vivo_teste, buscar_jogos_do_dia
 from ui.tela_palpites import _aplicar_estilos_palpites, _formatar_data_hora
 from utils.formatters import formatar_nome_time
 from utils.team_assets import render_team_identity_html
+
+
+_STATUS_AO_VIVO = frozenset({
+    "inprogress", "1st_half", "halftime", "2nd_half",
+    "live", "first_half", "second_half",
+})
+_STATUS_FINALIZADO = frozenset({
+    "finished", "ft", "fulltime", "full time", "complete",
+    "completed", "final", "aet", "after extra time", "pen",
+    "after penalties",
+})
+
+
+def _normalizar_status_raw(status: Optional[str]) -> str:
+    return str(status or "").replace("_", " ").strip().lower()
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -26,6 +41,11 @@ def buscar_jogos_ao_vivo_cache(test_mode: bool) -> List[Dict[str, Any]]:
     if test_mode:
         return buscar_jogos_ao_vivo_teste()
     return buscar_jogos_ao_vivo()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def buscar_jogos_do_dia_cache() -> List[Dict[str, Any]]:
+    return buscar_jogos_do_dia()
 
 
 def _aplicar_auto_refresh(interval_ms: int = 30_000) -> None:
@@ -44,12 +64,20 @@ def _status_exibicao(status: Optional[str]) -> str:
     texto = str(status or "").strip()
     if not texto:
         return "AO VIVO"
-    texto_normalizado = texto.replace("_", " ").strip().lower()
-    if texto_normalizado in {"halftime", "half time"}:
+    s = texto.replace("_", " ").strip().lower()
+    if s in {"halftime", "half time"}:
         return "🟠 INTERVALO"
-    if texto_normalizado in {"inprogress", "live", "1st half", "first half", "2nd half", "second half"}:
+    if s in {"inprogress", "live", "1st half", "first half", "2nd half", "second half"}:
         return "🔴 AO VIVO"
-    if texto_normalizado == "mock":
+    if s in {"finished", "ft", "fulltime", "full time", "complete", "completed", "final", "aet", "after extra time", "pen", "after penalties"}:
+        return "✅ ENCERRADO"
+    if s in {"notstarted", "scheduled", "upcoming", "tbd"}:
+        return "⏳ AGENDADO"
+    if s == "postponed":
+        return "⚠️ ADIADO"
+    if s == "cancelled":
+        return "❌ CANCELADO"
+    if s == "mock":
         return "⚪ DEMO LOCAL"
     return texto.replace("_", " ").upper()
 
@@ -60,7 +88,7 @@ def _formatar_minuto(minuto: Optional[Any]) -> str:
     texto = str(minuto).strip()
     if not texto:
         return "-"
-    if texto.endswith("'") or texto.endswith("’"):
+    if texto.endswith("'") or texto.endswith("'"):
         return texto
     if texto.isdigit():
         return f"{texto}'"
@@ -140,15 +168,21 @@ def _render_jogo_ao_vivo_card(jogo: Dict[str, Any], palpites: Optional[List[Dict
     horario = _formatar_data_hora(data_hora) if data_hora else {"data": "-", "hora": "-"}
     estadio = str(jogo.get("estadio") or "").strip()
     fase = str(jogo.get("fase") or "").strip() or "Fase nao informada"
+    status_raw = _normalizar_status_raw(jogo.get("status"))
     status = _status_exibicao(jogo.get("status"))
     minuto = _formatar_minuto(jogo.get("minuto"))
     placar_casa = jogo.get("placar_casa")
     placar_fora = jogo.get("placar_fora")
-    placar_texto = (
-        f"{int(placar_casa)} x {int(placar_fora)}"
-        if placar_casa is not None and placar_fora is not None
-        else "Aguardando"
-    )
+
+    eh_ao_vivo = status_raw in _STATUS_AO_VIVO
+    eh_encerrado = status_raw in _STATUS_FINALIZADO
+
+    if placar_casa is not None and placar_fora is not None:
+        placar_texto = f"{int(placar_casa)} x {int(placar_fora)}"
+    elif eh_encerrado:
+        placar_texto = "- x -"
+    else:
+        placar_texto = horario["hora"]
 
     meta = [fase, f"{horario['data']} {horario['hora']}"]
     if estadio:
@@ -158,7 +192,7 @@ def _render_jogo_ao_vivo_card(jogo: Dict[str, Any], palpites: Optional[List[Dict
         [
             status,
             fase,
-            f"Minuto {minuto}",
+            f"Minuto {minuto}" if eh_ao_vivo else "",
             "DEMO LOCAL" if jogo.get("mock") else "",
         ]
     )
@@ -187,8 +221,16 @@ def _render_jogo_ao_vivo_card(jogo: Dict[str, Any], palpites: Optional[List[Dict
     _render_palpites_jogo(jogo, palpites or [])
 
 
+def _render_secao(titulo: str, jogos: List[Dict[str, Any]], palpites_por_api_id: Dict[int, List]) -> None:
+    st.markdown(f"### {titulo}")
+    for jogo in jogos:
+        api_id = jogo.get("api_id")
+        palpites = palpites_por_api_id.get(int(api_id), []) if api_id is not None else []
+        _render_jogo_ao_vivo_card(jogo, palpites)
+
+
 def render_tela_ao_vivo() -> None:
-    """Renderiza a pagina de acompanhamento ao vivo."""
+    """Renderiza a pagina de acompanhamento ao vivo com jogos do dia."""
     _aplicar_estilos_palpites()
     st.markdown(
         """
@@ -288,7 +330,7 @@ def render_tela_ao_vivo() -> None:
             """
             <div class="wc-live-hero">
                 <div class="wc-page-title">Ao Vivo</div>
-                <div class="wc-live-subtitle">Visualizacao dos jogos em andamento da Copa do Mundo.</div>
+                <div class="wc-live-subtitle">Jogos de hoje da Copa do Mundo.</div>
             </div>
             """
         ),
@@ -297,51 +339,83 @@ def render_tela_ao_vivo() -> None:
 
     if TEST_MODE_AO_VIVO:
         st.warning("Modo de teste ativo — não usar em produção.")
-        st.info("TEST_MODE_AO_VIVO ativo: buscando jogos ao vivo gerais para teste controlado.")
-    else:
-        st.caption("Modo oficial da Copa do Mundo.")
 
     st.caption("Atualizacao automatica a cada 30 segundos.")
 
+    # Busca jogos do dia (schedule) e jogos ao vivo (placares em tempo real)
+    try:
+        jogos_hoje = buscar_jogos_do_dia_cache()
+    except BSDAPIError as exc:
+        st.warning(f"Nao foi possivel buscar jogos do dia: {exc}")
+        jogos_hoje = []
+    except Exception as exc:  # pragma: no cover
+        st.error(f"Erro inesperado ao buscar jogos do dia: {exc}")
+        jogos_hoje = []
+
     try:
         jogos_ao_vivo = buscar_jogos_ao_vivo_cache(TEST_MODE_AO_VIVO)
-    except BSDAPIError as exc:
-        st.warning(f"Nao foi possivel consultar a API ao vivo: {exc}")
+    except BSDAPIError:
         jogos_ao_vivo = []
-    except Exception as exc:  # pragma: no cover - erro inesperado
-        st.error(f"Erro inesperado ao consultar jogos ao vivo: {exc}")
-        return
+    except Exception:  # pragma: no cover
+        jogos_ao_vivo = []
 
-    if not jogos_ao_vivo:
-        if TEST_MODE_AO_VIVO:
-            st.info("Nenhum jogo ao vivo encontrado na API de teste. Exibindo mock local apenas nesta tela.")
-            jogos_ao_vivo = _gerar_mock_local()
-            st.caption("Mock local isolado para validar layout, atualização e estados visuais.")
-            st.metric("Jogos em demonstracao", len(jogos_ao_vivo))
+    # Sobrepõe dados ao vivo nos jogos do dia (placar e minuto em tempo real)
+    live_por_api_id: Dict[int, Dict[str, Any]] = {
+        j["api_id"]: j for j in jogos_ao_vivo if j.get("api_id") is not None
+    }
+    hoje_api_ids = {j.get("api_id") for j in jogos_hoje}
+
+    jogos_merged: List[Dict[str, Any]] = []
+    for jogo in jogos_hoje:
+        api_id = jogo.get("api_id")
+        if api_id is not None and api_id in live_por_api_id:
+            jogos_merged.append(live_por_api_id[api_id])
         else:
-            st.info("Nenhum jogo da Copa ao vivo neste momento.")
+            jogos_merged.append(jogo)
+
+    # Jogos ao vivo que não estão na lista do dia (raridade)
+    for jogo in jogos_ao_vivo:
+        if jogo.get("api_id") not in hoje_api_ids:
+            jogos_merged.append(jogo)
+
+    if not jogos_merged:
+        if TEST_MODE_AO_VIVO:
+            st.info("Nenhum jogo encontrado na API de teste. Exibindo mock local.")
+            jogos_merged = _gerar_mock_local()
+        else:
+            st.info("Nenhum jogo da Copa hoje.")
             return
-    else:
-        titulo_metric = "Jogos ao vivo de teste" if TEST_MODE_AO_VIVO else "Jogos ao vivo da Copa"
-        st.metric(titulo_metric, len(jogos_ao_vivo))
 
     jogos_ordenados = sorted(
-        jogos_ao_vivo,
-        key=lambda jogo: (
-            str(jogo.get("data_hora") or ""),
-            int(jogo.get("match_number") or 0),
-            str(jogo.get("status") or ""),
-        ),
+        jogos_merged,
+        key=lambda j: (str(j.get("data_hora") or ""), int(j.get("match_number") or 0)),
     )
 
-    api_ids = tuple(
-        int(jogo["api_id"])
-        for jogo in jogos_ordenados
-        if jogo.get("api_id") is not None and not jogo.get("mock")
-    )
-    palpites_por_api_id = listar_palpites_por_api_ids(api_ids)
+    ao_vivo = [j for j in jogos_ordenados if _normalizar_status_raw(j.get("status")) in _STATUS_AO_VIVO]
+    encerrados = [j for j in jogos_ordenados if _normalizar_status_raw(j.get("status")) in _STATUS_FINALIZADO]
+    proximos = [
+        j for j in jogos_ordenados
+        if _normalizar_status_raw(j.get("status")) not in _STATUS_AO_VIVO
+        and _normalizar_status_raw(j.get("status")) not in _STATUS_FINALIZADO
+    ]
 
-    for jogo in jogos_ordenados:
-        api_id = jogo.get("api_id")
-        palpites = palpites_por_api_id.get(int(api_id), []) if api_id is not None else []
-        _render_jogo_ao_vivo_card(jogo, palpites)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("🔴 Ao Vivo", len(ao_vivo))
+    col2.metric("⏳ Próximos", len(proximos))
+    col3.metric("✅ Encerrados", len(encerrados))
+
+    api_ids_tuple = tuple(
+        int(j["api_id"])
+        for j in jogos_ordenados
+        if j.get("api_id") is not None and not j.get("mock")
+    )
+    palpites_por_api_id = listar_palpites_por_api_ids(api_ids_tuple)
+
+    if ao_vivo:
+        _render_secao("🔴 Em Andamento", ao_vivo, palpites_por_api_id)
+
+    if proximos:
+        _render_secao("⏳ Próximos Jogos", proximos, palpites_por_api_id)
+
+    if encerrados:
+        _render_secao("✅ Encerrados", encerrados, palpites_por_api_id)
