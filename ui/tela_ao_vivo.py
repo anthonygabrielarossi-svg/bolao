@@ -36,7 +36,7 @@ def _normalizar_status_raw(status: Optional[str]) -> str:
     return str(status or "").replace("_", " ").strip().lower()
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=20, show_spinner=False)
 def buscar_jogos_ao_vivo_cache(test_mode: bool) -> List[Dict[str, Any]]:
     if test_mode:
         return buscar_jogos_ao_vivo_teste()
@@ -452,7 +452,7 @@ def render_tela_ao_vivo() -> None:
         unsafe_allow_html=True,
     )
 
-    _aplicar_auto_refresh(30_000)
+    _aplicar_auto_refresh(20_000)
 
     st.markdown(
         dedent(
