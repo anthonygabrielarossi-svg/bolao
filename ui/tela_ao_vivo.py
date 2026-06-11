@@ -43,7 +43,7 @@ def buscar_jogos_ao_vivo_cache(test_mode: bool) -> List[Dict[str, Any]]:
     return buscar_jogos_ao_vivo()
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def buscar_jogos_do_dia_cache() -> List[Dict[str, Any]]:
     return buscar_jogos_do_dia()
 

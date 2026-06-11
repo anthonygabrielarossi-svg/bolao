@@ -765,20 +765,20 @@ def buscar_jogos_ao_vivo(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]
         return []
 
     status_validos = {
-        "inprogress",
-        "1st_half",
-        "halftime",
-        "2nd_half",
+        "inprogress", "in progress",
+        "1st half", "1st_half",
+        "halftime", "half time",
+        "2nd half", "2nd_half",
         "live",
-        "first_half",
-        "second_half",
+        "first half", "first_half",
+        "second half", "second_half",
     }
 
     jogos: List[Dict[str, Any]] = []
     for evento in eventos:
         if not _evento_eh_copa_ao_vivo(evento):
             continue
-        status = _normalize_text(_extrair_status(evento))
+        status = _normalize_text(_extrair_status(evento)).replace("_", " ")
         if status and status not in status_validos:
             continue
         jogos.append(_normalizar_evento_ao_vivo(evento))
