@@ -453,7 +453,7 @@ def _render_tabela_classificacao_grupo(
     logo_lookup = construir_mapa_logos_por_jogos(jogos_referencia or [])
 
     times_para_tabela: List[Dict[str, Any]] = []
-    for posicao, time_nome in enumerate(times_base, start=1):
+    for time_nome in times_base:
         item = rows_por_time.get(normalizar_texto(time_nome))
         team_info = logo_lookup.get(normalizar_texto(time_nome), {})
         pontos = item.pontos if item else 0
@@ -467,7 +467,6 @@ def _render_tabela_classificacao_grupo(
         percentual = _percentual_aproveitamento(pontos, jogos)
         times_para_tabela.append(
             {
-                "posicao": posicao,
                 "identity_html": render_team_identity_html(
                     time_nome,
                     team_id=team_info.get("team_id"),
@@ -485,6 +484,12 @@ def _render_tabela_classificacao_grupo(
                 "percentual": percentual,
             }
         )
+
+    times_para_tabela.sort(
+        key=lambda t: (-t["pontos"], -t["saldo"], -t["gols_pro"], t["nome"].lower())
+    )
+    for posicao, time in enumerate(times_para_tabela, start=1):
+        time["posicao"] = posicao
 
     render_tabela_classificacao(times_para_tabela)
 
