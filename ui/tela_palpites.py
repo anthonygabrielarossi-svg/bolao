@@ -545,29 +545,20 @@ def _render_jogo_card(
         )
 
     encerrado_html = '<div class="wc-match-closed">Palpite encerrado</div>' if bloqueado else ""
+    right_html = encerrado_html + badge_html
 
     st.markdown(
-        dedent(
-            f"""
-        <div class="wc-match-card">
-            <div class="wc-match-topline">
-                <span class="wc-status">{status}</span>
-                <span>{' · '.join(meta)}</span>
-            </div>
-            <div class="wc-match-body">
-                <div class="wc-match-teams">
-                    {home_identity}
-                    <span style="opacity:.65;"> x </span>
-                    {away_identity}
-                </div>
-                <div class="wc-match-right">
-                    {encerrado_html}
-                    {badge_html}
-                </div>
-            </div>
-        </div>
-            """
-        ),
+        f'<div class="wc-match-card">'
+        f'<div class="wc-match-topline">'
+        f'<span class="wc-status">{status}</span>'
+        f'<span>{" · ".join(meta)}</span>'
+        f'</div>'
+        f'<div class="wc-match-body">'
+        f'<div class="wc-match-teams">{home_identity}'
+        f'<span style="opacity:.65;"> x </span>{away_identity}</div>'
+        f'<div class="wc-match-right">{right_html}</div>'
+        f'</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
