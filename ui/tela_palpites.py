@@ -217,15 +217,13 @@ def _aplicar_estilos_palpites() -> None:
         }
 
         .wc-salvo-badge {
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 0.4rem;
-            margin-top: 0.55rem;
-            padding: 0.38rem 0.75rem;
+            padding: 0.3rem 0.65rem;
             border-radius: 8px;
-            font-size: 0.82rem;
-            width: 100%;
-            box-sizing: border-box;
+            font-size: 0.8rem;
+            white-space: nowrap;
         }
         .wc-salvo-ok {
             background: rgba(34,197,94,0.1);
@@ -247,7 +245,6 @@ def _aplicar_estilos_palpites() -> None:
             display: inline-flex;
             align-items: center;
             gap: 0.35rem;
-            margin-top: 0.55rem;
             padding: 0.25rem 0.65rem;
             border-radius: 999px;
             background: rgba(239, 68, 68, 0.14);
@@ -256,6 +253,23 @@ def _aplicar_estilos_palpites() -> None:
             font-weight: 800;
             letter-spacing: 0.08em;
             text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .wc-match-body {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .wc-match-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.4rem;
+            flex-shrink: 0;
         }
 
         .wc-match-topline {
@@ -508,6 +522,30 @@ def _render_jogo_card(
     if estadio:
         meta.append(f"🏟 {estadio}")
 
+    # Badge de confirmação (lado direito do card)
+    if tem_palpite_salvo:
+        p_a = int(palpite_atual["palpite_a"])
+        p_b = int(palpite_atual["palpite_b"])
+        badge_html = (
+            f'<div class="wc-salvo-badge wc-salvo-ok">'
+            f'💾 Salvo: <strong>{html.escape(home_nome)} {p_a} × {p_b} {html.escape(away_nome)}</strong>'
+            f'</div>'
+        )
+    elif not bloqueado:
+        badge_html = (
+            '<div class="wc-salvo-badge wc-salvo-warn">'
+            '⚠️ Sem palpite salvo'
+            '</div>'
+        )
+    else:
+        badge_html = (
+            '<div class="wc-salvo-badge wc-salvo-erro">'
+            '⚠️ Sem palpite salvo'
+            '</div>'
+        )
+
+    encerrado_html = '<div class="wc-match-closed">Palpite encerrado</div>' if bloqueado else ""
+
     st.markdown(
         dedent(
             f"""
@@ -516,18 +554,22 @@ def _render_jogo_card(
                 <span class="wc-status">{status}</span>
                 <span>{' · '.join(meta)}</span>
             </div>
-            <div class="wc-match-teams">
-                {home_identity}
-                <span style="opacity:.65;"> x </span>
-                {away_identity}
+            <div class="wc-match-body">
+                <div class="wc-match-teams">
+                    {home_identity}
+                    <span style="opacity:.65;"> x </span>
+                    {away_identity}
+                </div>
+                <div class="wc-match-right">
+                    {encerrado_html}
+                    {badge_html}
+                </div>
             </div>
         </div>
             """
         ),
         unsafe_allow_html=True,
     )
-    if bloqueado:
-        st.markdown("<div class='wc-match-closed'>Palpite encerrado</div>", unsafe_allow_html=True)
 
     col_home, col_away = st.columns(2)
     palpite_a = col_home.number_input(
@@ -567,30 +609,6 @@ def _render_jogo_card(
             st.error(str(exc))
         else:
             st.success("Palpite salvo com sucesso.")
-
-    if tem_palpite_salvo:
-        p_a = int(palpite_atual["palpite_a"])
-        p_b = int(palpite_atual["palpite_b"])
-        st.markdown(
-            f'<div class="wc-salvo-badge wc-salvo-ok">'
-            f'💾 Salvo no banco: <strong>{html.escape(home_nome)} {p_a} × {p_b} {html.escape(away_nome)}</strong>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    elif not bloqueado:
-        st.markdown(
-            '<div class="wc-salvo-badge wc-salvo-warn">'
-            '⚠️ Nenhum palpite salvo para este jogo'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div class="wc-salvo-badge wc-salvo-erro">'
-            '⚠️ Sem palpite salvo — jogo encerrado'
-            '</div>',
-            unsafe_allow_html=True,
-        )
 
 
 def _parse_data_jogo_para_ordem(jogo) -> tuple:
