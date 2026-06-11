@@ -216,6 +216,33 @@ def _aplicar_estilos_palpites() -> None:
             margin-bottom: 0.75rem;
         }
 
+        .wc-salvo-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-top: 0.55rem;
+            padding: 0.38rem 0.75rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .wc-salvo-ok {
+            background: rgba(34,197,94,0.1);
+            border: 1px solid rgba(34,197,94,0.3);
+            color: #86efac;
+        }
+        .wc-salvo-warn {
+            background: rgba(234,179,8,0.1);
+            border: 1px solid rgba(234,179,8,0.3);
+            color: #fde047;
+        }
+        .wc-salvo-erro {
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.2);
+            color: rgba(255,255,255,0.45);
+        }
+
         .wc-match-closed {
             display: inline-flex;
             align-items: center;
@@ -456,6 +483,7 @@ def _render_jogo_card(
 ) -> None:
     home_nome = formatar_nome_time(jogo.time_casa or jogo.time_a)
     away_nome = formatar_nome_time(jogo.time_fora or jogo.time_b)
+    tem_palpite_salvo = "palpite_a" in palpite_atual
     home_identity = render_team_identity_html(
         jogo.time_casa or jogo.time_a,
         team_id=getattr(jogo, "home_team_id", None),
@@ -540,6 +568,30 @@ def _render_jogo_card(
         else:
             st.success("Palpite salvo com sucesso.")
 
+    if tem_palpite_salvo:
+        p_a = int(palpite_atual["palpite_a"])
+        p_b = int(palpite_atual["palpite_b"])
+        st.markdown(
+            f'<div class="wc-salvo-badge wc-salvo-ok">'
+            f'💾 Salvo no banco: <strong>{html.escape(home_nome)} {p_a} × {p_b} {html.escape(away_nome)}</strong>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif not bloqueado:
+        st.markdown(
+            '<div class="wc-salvo-badge wc-salvo-warn">'
+            '⚠️ Nenhum palpite salvo para este jogo'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="wc-salvo-badge wc-salvo-erro">'
+            '⚠️ Sem palpite salvo — jogo encerrado'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
 
 def _parse_data_jogo_para_ordem(jogo) -> tuple:
     data_iso = getattr(jogo, "data_jogo", None)
@@ -580,7 +632,7 @@ def _render_jogos_rodada_grupo(
     st.markdown(f"<div class='wc-round-label'>{rodada}ª rodada</div>", unsafe_allow_html=True)
     for indice, jogo in enumerate(jogos_rodada, start=1):
         jogo_id = jogo.id if jogo.id is not None else int(f"{rodada}{indice}")
-        palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
+        palpite_atual = palpites_partidas.get(jogo_id, {})
         _render_jogo_card(
             user_id=user_id,
             jogo=jogo,
@@ -650,7 +702,7 @@ def _render_fase_grupos(
         st.markdown("<div class='wc-round-label'>Não mapeados</div>", unsafe_allow_html=True)
         for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos_sem_grupo), start=1):
             jogo_id = jogo.id if jogo.id is not None else indice
-            palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
+            palpite_atual = palpites_partidas.get(jogo_id, {})
             _render_jogo_card(
                 user_id=user_id,
                 jogo=jogo,
@@ -667,7 +719,7 @@ def _render_fase_simples(user_id: int, fase: str, jogos: List, palpites_partidas
     with st.expander(fase_exibicao, expanded=False):
         for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos), start=1):
             jogo_id = jogo.id if jogo.id is not None else indice
-            palpite_atual = palpites_partidas.get(jogo_id, {"palpite_a": 0, "palpite_b": 0})
+            palpite_atual = palpites_partidas.get(jogo_id, {})
             _render_jogo_card(
                 user_id=user_id,
                 jogo=jogo,
