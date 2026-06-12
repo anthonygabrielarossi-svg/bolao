@@ -440,16 +440,14 @@ def _montar_linhas_tabela(ranking: List[Tuple[int, object]]) -> str:
         elif posicao == 3:
             classe.append("top-3")
 
-        pontos_partidas = getattr(item, "pontos_partidas", None)
-        pontos_especiais = getattr(item, "pontos_especiais", None)
-        tem_detalhes = any(valor not in (None, 0) for valor in (pontos_partidas, pontos_especiais))
-
-        colunas_extra = ""
-        if tem_detalhes:
-            colunas_extra = (
-                f"<td class='ranking-num'>{html.escape(str(int(pontos_partidas or 0)))}</td>"
-                f"<td class='ranking-num'>{html.escape(str(int(pontos_especiais or 0)))}</td>"
-            )
+        exatos = getattr(item, "placares_exatos", 0) or 0
+        resultados = getattr(item, "resultados_certos", 0) or 0
+        especiais = getattr(item, "especiais_acertos", 0) or 0
+        colunas_extra = (
+            f"<td class='ranking-num'>{html.escape(str(int(exatos)))}</td>"
+            f"<td class='ranking-num'>{html.escape(str(int(resultados)))}</td>"
+            f"<td class='ranking-num'>{html.escape(str(int(especiais)))}</td>"
+        )
 
         linhas.append(
             (
@@ -465,31 +463,18 @@ def _montar_linhas_tabela(ranking: List[Tuple[int, object]]) -> str:
 
 
 def _render_tabela_ranking(ranking: List[Tuple[int, object]]) -> None:
-    tem_detalhes = any(
-        getattr(item, "pontos_partidas", 0) or getattr(item, "pontos_especiais", 0)
-        for _, item in ranking
-    )
     cabecalhos = (
         "<thead>"
         "<tr>"
         "<th>Posicao</th>"
         "<th>Participante</th>"
         "<th style=\"text-align:right;\">Pontos</th>"
+        "<th style=\"text-align:right;\" title=\"Placares exatos acertados\">Exatos</th>"
+        "<th style=\"text-align:right;\" title=\"Resultados corretos (sem placar exato)\">Result.</th>"
+        "<th style=\"text-align:right;\" title=\"Palpites especiais acertados\">Esp.</th>"
         "</tr>"
         "</thead>"
     )
-    if tem_detalhes:
-        cabecalhos = (
-            "<thead>"
-            "<tr>"
-            "<th>Posicao</th>"
-            "<th>Participante</th>"
-            "<th style=\"text-align:right;\">Pontos</th>"
-            "<th style=\"text-align:right;\">Partidas</th>"
-            "<th style=\"text-align:right;\">Especiais</th>"
-            "</tr>"
-            "</thead>"
-        )
 
     html_tabela = dedent(
         f"""
@@ -497,7 +482,7 @@ def _render_tabela_ranking(ranking: List[Tuple[int, object]]) -> None:
             <div class="ranking-table-header">
                 <div>
                     <div class="ranking-table-title">Classificacao geral</div>
-                    <div class="ranking-table-caption">Ordenado pela pontuacao total salva no banco.</div>
+                    <div class="ranking-table-caption">Desempate: exatos &gt; resultados &gt; especiais &gt; nome.</div>
                 </div>
             </div>
             <div class="ranking-table-wrap">

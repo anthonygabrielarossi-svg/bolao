@@ -23,6 +23,7 @@ from database import (
     listar_todos_palpites_partidas,
     listar_usuarios,
     listar_usuarios_ranking,
+    listar_pontuacoes_ranking,
     usuario_eh_admin,
 )
 from utils.formatters import normalizar_texto
@@ -154,9 +155,12 @@ def pontuar_palpite_especial(chave: str, palpite: str, oficial: str) -> int:
     return 0
 
 
-def _pontuar_especiais(palpites_especiais, resultados_oficiais, *, jogos: Optional[List] = None) -> int:
+def _pontuar_especiais(
+    palpites_especiais, resultados_oficiais, *, jogos: Optional[List] = None
+) -> "tuple[int, int]":
+    """Retorna (pontos_totais, quantidade_de_acertos) dos palpites especiais."""
     if not palpites_especiais:
-        return 0
+        return 0, 0
 
     campeao_auto, vice_auto = _obter_campeao_vice_da_final(jogos)
     classificacao_oficial = _obter_classificacao_grupos_oficial(jogos)
@@ -165,18 +169,25 @@ def _pontuar_especiais(palpites_especiais, resultados_oficiais, *, jogos: Option
     fase_grupos_encerrada = len(terceiros_lista) == 8
 
     pts = 0
+    acertos = 0
+
+    def _somar(p: int) -> None:
+        nonlocal pts, acertos
+        pts += p
+        if p > 0:
+            acertos += 1
 
     # Campeão e vice (detectados da Final)
-    pts += pontuar_palpite_especial("campeao", getattr(palpites_especiais, "campeao", "") or "", campeao_auto)
-    pts += pontuar_palpite_especial("vice", getattr(palpites_especiais, "vice", "") or "", vice_auto)
+    _somar(pontuar_palpite_especial("campeao", getattr(palpites_especiais, "campeao", "") or "", campeao_auto))
+    _somar(pontuar_palpite_especial("vice", getattr(palpites_especiais, "vice", "") or "", vice_auto))
 
     # Artilheiro e melhor jogador (gabarito manual)
     for chave in ("artilheiro", "melhor_jogador"):
-        pts += pontuar_palpite_especial(
+        _somar(pontuar_palpite_especial(
             chave,
             getattr(palpites_especiais, chave, "") or "",
             getattr(resultados_oficiais, chave, "") or "",
-        )
+        ))
 
     # Classificação dos grupos — apenas quando o grupo encerrou
     bruto = getattr(palpites_especiais, "classificados_grupos", "") or ""
@@ -195,17 +206,17 @@ def _pontuar_especiais(palpites_especiais, resultados_oficiais, *, jogos: Option
             segundo_oficial = info_oficial.get("segundo", "")
 
             if primeiro_oficial:
-                pts += pontuar_palpite_especial("primeiro_grupo", valores.get("primeiro", "") or "", primeiro_oficial)
+                _somar(pontuar_palpite_especial("primeiro_grupo", valores.get("primeiro", "") or "", primeiro_oficial))
             if segundo_oficial:
-                pts += pontuar_palpite_especial("segundo_grupo", valores.get("segundo", "") or "", segundo_oficial)
+                _somar(pontuar_palpite_especial("segundo_grupo", valores.get("segundo", "") or "", segundo_oficial))
 
             # 3º colocado: só pontua quando todos os 12 grupos encerraram (8 classificados definidos)
             if fase_grupos_encerrada and valores.get("terceiro_classificado") and valores.get("terceiro"):
                 chave_t = normalizar_texto(canonicalizar_time(valores["terceiro"]) or valores["terceiro"])
                 if chave_t in terceiros_ok:
-                    pts += PESOS_ESPECIAIS["terceiro_classificado"]
+                    _somar(PESOS_ESPECIAIS["terceiro_classificado"])
 
-    return pts
+    return pts, acertos
 
 
 def calcular_pontuacao_usuario(
@@ -231,19 +242,31 @@ def calcular_pontuacao_usuario(
         }
 
     pontos_partidas = 0
+    placares_exatos = 0
+    resultados_certos = 0
     for match_id, palpite in palpites_partidas.items():
         jogo = jogos_finalizados.get(match_id)
         if not jogo:
             continue
-        pontos_partidas += pontuar_partida(palpite.palpite_a, palpite.palpite_b, int(jogo.placar_a), int(jogo.placar_b))
+        pts_jogo = pontuar_partida(palpite.palpite_a, palpite.palpite_b, int(jogo.placar_a), int(jogo.placar_b))
+        pontos_partidas += pts_jogo
+        if pts_jogo == 10:
+            placares_exatos += 1
+        elif pts_jogo == 5:
+            resultados_certos += 1
 
-    pontos_especiais = _pontuar_especiais(
+    pontos_especiais, especiais_acertos = _pontuar_especiais(
         palpites_especiais, resultados_oficiais,
         jogos=list(jogos_finalizados.values()) if jogos_finalizados else None,
     )
 
     pontuacao_total = pontos_partidas + pontos_especiais
-    atualizar_pontuacao_usuario(user_id, pontuacao_total)
+    atualizar_pontuacao_usuario(
+        user_id, pontuacao_total,
+        placares_exatos=placares_exatos,
+        resultados_certos=resultados_certos,
+        especiais_acertos=especiais_acertos,
+    )
 
     if usuarios_por_id is None:
         usuario = next((item for item in listar_usuarios() if item.id == user_id), None)
@@ -257,6 +280,9 @@ def calcular_pontuacao_usuario(
         pontos_partidas=pontos_partidas,
         pontos_especiais=pontos_especiais,
         pontuacao_total=pontuacao_total,
+        placares_exatos=placares_exatos,
+        resultados_certos=resultados_certos,
+        especiais_acertos=especiais_acertos,
     )
 
 
@@ -291,18 +317,25 @@ def recalcular_ranking_automaticamente(executed_by_user_id: Optional[int] = None
         palpites_especiais = palpites_especiais_por_usuario.get(user_id)
 
         pontos_partidas = 0
+        placares_exatos = 0
+        resultados_certos = 0
         for match_id, palpite in palpites_partidas.items():
             jogo = jogos_finalizados.get(match_id)
             if not jogo:
                 continue
-            pontos_partidas += pontuar_partida(
+            pts_jogo = pontuar_partida(
                 palpite.palpite_a,
                 palpite.palpite_b,
                 int(jogo.placar_a),
                 int(jogo.placar_b),
             )
+            pontos_partidas += pts_jogo
+            if pts_jogo == 10:
+                placares_exatos += 1
+            elif pts_jogo == 5:
+                resultados_certos += 1
 
-        pontos_especiais = _pontuar_especiais(
+        pontos_especiais, especiais_acertos = _pontuar_especiais(
             palpites_especiais, resultados_oficiais,
             jogos=list(jogos_finalizados.values()),
         )
@@ -315,13 +348,20 @@ def recalcular_ranking_automaticamente(executed_by_user_id: Optional[int] = None
                 pontos_partidas=pontos_partidas,
                 pontos_especiais=pontos_especiais,
                 pontuacao_total=pontuacao_total,
+                placares_exatos=placares_exatos,
+                resultados_certos=resultados_certos,
+                especiais_acertos=especiais_acertos,
             )
         )
 
-    atualizar_pontuacoes_usuarios_em_lote(
-        {item.user_id: item.pontuacao_total for item in ranking_calculado}
-    )
-    ranking_calculado.sort(key=lambda item: (-item.pontuacao_total, item.nome.lower()))
+    atualizar_pontuacoes_usuarios_em_lote(ranking_calculado)
+    ranking_calculado.sort(key=lambda item: (
+        -item.pontuacao_total,
+        -item.placares_exatos,
+        -item.resultados_certos,
+        -item.especiais_acertos,
+        item.nome.lower(),
+    ))
     return ranking_calculado
 
 
@@ -424,14 +464,5 @@ def detalhar_pontuacao_usuario(user_id: int) -> Dict[str, Any]:
 
 
 def listar_ranking_atual() -> List[PontuacaoUsuario]:
-    """Retorna o ranking salvo no banco de dados."""
-    return [
-        PontuacaoUsuario(
-            user_id=item.id,
-            nome=item.nome,
-            pontos_partidas=0,
-            pontos_especiais=0,
-            pontuacao_total=item.pontuacao_total,
-        )
-        for item in listar_usuarios_ranking()
-    ]
+    """Retorna o ranking salvo no banco de dados, ordenado pelos 5 criterios de desempate."""
+    return listar_pontuacoes_ranking()

@@ -642,6 +642,9 @@ def init_db() -> None:
             "INTEGER NOT NULL DEFAULT 0" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE",
         )
         _ensure_column(conn, "Usuarios", "pontuacao_total", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "Usuarios", "placares_exatos", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "Usuarios", "resultados_certos", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "Usuarios", "especiais_acertos", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(
             conn,
             "Usuarios",
@@ -1313,11 +1316,19 @@ def listar_usuarios_ranking() -> List[Usuario]:
     return [_row_to_usuario(row) for row in rows]
 
 
-def atualizar_pontuacao_usuario(user_id: int, pontuacao_total: int) -> None:
+def atualizar_pontuacao_usuario(
+    user_id: int,
+    pontuacao_total: int,
+    placares_exatos: int = 0,
+    resultados_certos: int = 0,
+    especiais_acertos: int = 0,
+) -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE Usuarios SET pontuacao_total = ? WHERE id = ?",
-            (int(pontuacao_total), int(user_id)),
+            """UPDATE Usuarios SET pontuacao_total = ?, placares_exatos = ?,
+               resultados_certos = ?, especiais_acertos = ? WHERE id = ?""",
+            (int(pontuacao_total), int(placares_exatos),
+             int(resultados_certos), int(especiais_acertos), int(user_id)),
         )
         conn.commit()
     _clear_data_cache()
@@ -1962,16 +1973,52 @@ def salvar_classificacao_grupos(classificacoes: Sequence[ClassificacaoGrupo]) ->
     _clear_data_cache()
 
 
-def atualizar_pontuacoes_usuarios_em_lote(pontuacoes: Dict[int, int]) -> None:
+def atualizar_pontuacoes_usuarios_em_lote(pontuacoes: "List[PontuacaoUsuario]") -> None:
     if not pontuacoes:
         return
     with get_connection() as conn:
         conn.executemany(
-            "UPDATE Usuarios SET pontuacao_total = ? WHERE id = ?",
-            [(int(pontos), int(user_id)) for user_id, pontos in pontuacoes.items()],
+            """UPDATE Usuarios SET pontuacao_total = ?, placares_exatos = ?,
+               resultados_certos = ?, especiais_acertos = ? WHERE id = ?""",
+            [
+                (int(p.pontuacao_total), int(p.placares_exatos),
+                 int(p.resultados_certos), int(p.especiais_acertos), int(p.user_id))
+                for p in pontuacoes
+            ],
         )
         conn.commit()
     _clear_data_cache()
+
+
+def listar_pontuacoes_ranking() -> "List[PontuacaoUsuario]":
+    """Retorna pontuacoes com criterios de desempate, ordenadas pela classificacao final."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, nome, pontuacao_total,
+                   COALESCE(placares_exatos, 0) AS placares_exatos,
+                   COALESCE(resultados_certos, 0) AS resultados_certos,
+                   COALESCE(especiais_acertos, 0) AS especiais_acertos
+            FROM Usuarios
+            WHERE aprovado = ? AND is_admin = ?
+            ORDER BY pontuacao_total DESC, placares_exatos DESC,
+                     resultados_certos DESC, especiais_acertos DESC, nome ASC
+            """,
+            (True, False),
+        ).fetchall()
+    return [
+        PontuacaoUsuario(
+            user_id=int(_row_get(row, "id")),
+            nome=str(_row_get(row, "nome") or ""),
+            pontos_partidas=0,
+            pontos_especiais=0,
+            pontuacao_total=int(_row_get(row, "pontuacao_total") or 0),
+            placares_exatos=int(_row_get(row, "placares_exatos") or 0),
+            resultados_certos=int(_row_get(row, "resultados_certos") or 0),
+            especiais_acertos=int(_row_get(row, "especiais_acertos") or 0),
+        )
+        for row in rows
+    ]
 
 
 @st.cache_data(ttl=60, show_spinner=False)

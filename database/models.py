@@ -133,3 +133,6 @@ class PontuacaoUsuario:
     pontos_partidas: int
     pontos_especiais: int
     pontuacao_total: int
+    placares_exatos: int = 0
+    resultados_certos: int = 0
+    especiais_acertos: int = 0
