@@ -33,6 +33,7 @@ from ui.tela_recuperar_senha import render_tela_recuperar_senha
 from ui.tela_resultados import render_tela_resultados
 from ui.tela_ranking import render_tela_ranking
 from ui.tela_simulacao import render_tela_simulacao
+from ui.tela_minha_pontuacao import render_tela_minha_pontuacao
 
 
 st.set_page_config(
@@ -378,7 +379,7 @@ def render_menu_principal() -> None:
         render_tela_admin(int(st.session_state.user_id))
         return
 
-    opcoes_menu = ["Palpites", "Resultados", "Ao Vivo", "Simulacao", "Ranking", "Regras"]
+    opcoes_menu = ["Palpites", "Resultados", "Ao Vivo", "Simulacao", "Ranking", "Minha Pontuação", "Regras"]
     if st.session_state.is_admin:
         opcoes_menu.append("Admin")
 
@@ -404,6 +405,8 @@ def render_menu_principal() -> None:
         render_tela_simulacao()
     elif menu == "Ranking":
         render_tela_ranking()
+    elif menu == "Minha Pontuação":
+        render_tela_minha_pontuacao(int(st.session_state.user_id))
     elif menu == "Admin" and st.session_state.is_admin:
         st.session_state.current_screen = "admin"
         st.rerun()
