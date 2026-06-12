@@ -114,7 +114,7 @@ def render_regras() -> None:
         """
 - Valor de inscrição: **R$ 30,00** por participante (pague via PIX antes do início da Copa).
 - O acesso é liberado manualmente pelo administrador após confirmação do pagamento.
-- Palpites podem ser alterados a qualquer momento **até 1 hora antes do início de cada jogo**.
+- Palpites podem ser alterados a qualquer momento **até o início de cada jogo**.
         """
     )
 
@@ -168,7 +168,11 @@ O prêmio é formado pela soma das inscrições dos participantes aprovados (R$ 
 | 2º lugar | **30%** |
 | 3º lugar | **10%** |
 
-Em caso de empate no ranking, a posição é desempatada pela quantidade de placas exatos acertados.
+Em caso de empate no ranking, a posição é desempatada seguindo os seguintes critérios.
+    - Número de placar exato.
+    - Número de acertos.
+    - Quantidade de palpites especiais.
+    - Ordem alfabética.
         """
     )
 

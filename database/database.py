@@ -241,7 +241,11 @@ def _ensure_column(conn: DatabaseConnection, table: str, column: str, column_sql
 
     existing = conn.table_columns(table)
     if column not in existing:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_sql}")
+        if conn.is_sqlite:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_sql}")
+        else:
+            # PostgreSQL suporta IF NOT EXISTS, eliminando race conditions.
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {column_sql}")
 
 
 def _clear_data_cache() -> None:
