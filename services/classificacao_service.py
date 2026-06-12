@@ -18,7 +18,7 @@ from database import (
     usuario_eh_admin,
     validar_grupo_copa,
 )
-from utils.world_cup import WORLD_CUP_GROUPS_2026, canonicalizar_time, inferir_grupo_por_times
+from utils.world_cup import WORLD_CUP_GROUPS_2026, canonicalizar_time, formatar_nome_time, inferir_grupo_por_times
 
 _STATUS_FINAIS_REAIS = {"finished", "ft", "fulltime", "full time", "complete", "completed", "final"}
 
@@ -128,7 +128,7 @@ def calcular_classificacao_real_grupos(jogos: Optional[List[Jogo]] = None) -> Li
                 -item[1]["pontos"],
                 -(item[1]["gols_pro"] - item[1]["gols_contra"]),
                 -item[1]["gols_pro"],
-                item[0].lower(),
+                formatar_nome_time(item[0]).lower(),
             ),
         )
 
@@ -195,7 +195,7 @@ def obter_top_duas_por_grupo() -> Dict[str, List[str]]:
                 -item.pontos,
                 -item.saldo_gols,
                 -item.gols_pro,
-                item.time_nome.lower(),
+                formatar_nome_time(item.time_nome).lower(),
             ),
         )
         top_duas[grupo] = [item.time_nome for item in ordenados[:2]]
