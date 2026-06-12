@@ -169,10 +169,10 @@ O prêmio é formado pela soma das inscrições dos participantes aprovados (R$ 
 | 3º lugar | **10%** |
 
 Em caso de empate no ranking, a posição é desempatada seguindo os seguintes critérios.
-    - Número de placar exato.
-    - Número de acertos.
-    - Quantidade de palpites especiais.
-    - Ordem alfabética.
+- Número de placar exato.
+- Número de acertos.
+- Quantidade de palpites especiais.
+- Ordem alfabética.
         """
     )
 
