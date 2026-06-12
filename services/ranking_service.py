@@ -26,7 +26,7 @@ from database import (
     usuario_eh_admin,
 )
 from utils.formatters import normalizar_texto
-from utils.world_cup import canonicalizar_time
+from utils.world_cup import canonicalizar_time, formatar_nome_time
 
 
 PESOS_ESPECIAIS = {
@@ -83,7 +83,7 @@ def _obter_campeao_vice_da_final(jogos: Optional[List] = None) -> tuple[str, str
 
 
 def _obter_classificacao_grupos_oficial(jogos: Optional[List] = None) -> Dict[str, Any]:
-    """Retorna 1º/2º de cada grupo e os 8 terceiros qualificados a partir dos resultados reais."""
+    """Retorna 1º/2º de cada grupo (só quando encerrado) e os 8 terceiros qualificados (só quando fase completa)."""
     from services.classificacao_service import calcular_classificacao_real_grupos
 
     classificados = calcular_classificacao_real_grupos(jogos)
@@ -97,19 +97,24 @@ def _obter_classificacao_grupos_oficial(jogos: Optional[List] = None) -> Dict[st
 
     for grupo, times in por_grupo.items():
         ordenados = sorted(times, key=lambda t: t.posicao)
-        grupo_tem_jogos = len(ordenados) > 0 and ordenados[0].jogos > 0
+        # Grupo encerrado = todos os times jogaram 3 partidas (rodada-robin completa)
+        grupo_completo = len(ordenados) > 0 and ordenados[0].jogos >= 3
         resultado[grupo] = {
-            "primeiro": ordenados[0].time_nome if grupo_tem_jogos else "",
-            "segundo": ordenados[1].time_nome if grupo_tem_jogos and len(ordenados) > 1 else "",
+            "primeiro": ordenados[0].time_nome if grupo_completo else "",
+            "segundo": ordenados[1].time_nome if grupo_completo and len(ordenados) > 1 else "",
         }
-        if len(ordenados) > 2 and ordenados[2].jogos > 0:
+        if grupo_completo and len(ordenados) > 2:
             terceiros.append(ordenados[2])
 
-    top8 = sorted(
-        terceiros,
-        key=lambda t: (-t.pontos, -t.saldo_gols, -t.gols_pro, -t.vitorias, t.time_nome.lower()),
-    )[:8]
-    resultado["_terceiros_classificados"] = [t.time_nome for t in top8]
+    # Os 8 melhores 3ºs só são definidos quando todos os 12 grupos encerraram
+    top8_lista: List[str] = []
+    if len(terceiros) == 12:
+        top8 = sorted(
+            terceiros,
+            key=lambda t: (-t.pontos, -t.saldo_gols, -t.gols_pro, -t.vitorias, formatar_nome_time(t.time_nome).lower()),
+        )[:8]
+        top8_lista = [t.time_nome for t in top8]
+    resultado["_terceiros_classificados"] = top8_lista
 
     return resultado
 
@@ -155,10 +160,9 @@ def _pontuar_especiais(palpites_especiais, resultados_oficiais, *, jogos: Option
 
     campeao_auto, vice_auto = _obter_campeao_vice_da_final(jogos)
     classificacao_oficial = _obter_classificacao_grupos_oficial(jogos)
-    terceiros_ok = {
-        normalizar_texto(canonicalizar_time(t) or t)
-        for t in classificacao_oficial.get("_terceiros_classificados", [])
-    }
+    terceiros_lista = classificacao_oficial.get("_terceiros_classificados", [])
+    terceiros_ok = {normalizar_texto(canonicalizar_time(t) or t) for t in terceiros_lista}
+    fase_grupos_encerrada = len(terceiros_lista) == 8
 
     pts = 0
 
@@ -174,7 +178,7 @@ def _pontuar_especiais(palpites_especiais, resultados_oficiais, *, jogos: Option
             getattr(resultados_oficiais, chave, "") or "",
         )
 
-    # Classificação dos grupos — todos os 12
+    # Classificação dos grupos — apenas quando o grupo encerrou
     bruto = getattr(palpites_especiais, "classificados_grupos", "") or ""
     if bruto:
         try:
@@ -195,8 +199,8 @@ def _pontuar_especiais(palpites_especiais, resultados_oficiais, *, jogos: Option
             if segundo_oficial:
                 pts += pontuar_palpite_especial("segundo_grupo", valores.get("segundo", "") or "", segundo_oficial)
 
-            # 3º colocado que se classificou
-            if terceiros_ok and valores.get("terceiro_classificado") and valores.get("terceiro"):
+            # 3º colocado: só pontua quando todos os 12 grupos encerraram (8 classificados definidos)
+            if fase_grupos_encerrada and valores.get("terceiro_classificado") and valores.get("terceiro"):
                 chave_t = normalizar_texto(canonicalizar_time(valores["terceiro"]) or valores["terceiro"])
                 if chave_t in terceiros_ok:
                     pts += PESOS_ESPECIAIS["terceiro_classificado"]
@@ -351,10 +355,9 @@ def detalhar_pontuacao_usuario(user_id: int) -> Dict[str, Any]:
 
     campeao_auto, vice_auto = _obter_campeao_vice_da_final(list(jogos_finalizados.values()) or None)
     classificacao_oficial = _obter_classificacao_grupos_oficial(list(jogos_finalizados.values()) if jogos_finalizados else None)
-    terceiros_ok = {
-        normalizar_texto(canonicalizar_time(t) or t)
-        for t in classificacao_oficial.get("_terceiros_classificados", [])
-    }
+    terceiros_lista = classificacao_oficial.get("_terceiros_classificados", [])
+    terceiros_ok = {normalizar_texto(canonicalizar_time(t) or t) for t in terceiros_lista}
+    fase_grupos_encerrada = len(terceiros_lista) == 8
 
     detalhes_especiais = []
     if palpites_especiais:
@@ -395,16 +398,21 @@ def detalhar_pontuacao_usuario(user_id: int) -> Dict[str, Any]:
                                 "oficial": oficial_val,
                                 "pontos": pts,
                             })
-                if terceiros_ok and valores.get("terceiro_classificado") and valores.get("terceiro"):
-                    chave_t = normalizar_texto(canonicalizar_time(valores["terceiro"]) or valores["terceiro"])
-                    pts_t = PESOS_ESPECIAIS["terceiro_classificado"] if chave_t in terceiros_ok else 0
-                    if pts_t > 0 or valores.get("terceiro"):
-                        detalhes_especiais.append({
-                            "categoria": f"terceiro_{grupo}",
-                            "palpite": valores["terceiro"],
-                            "oficial": ", ".join(classificacao_oficial.get("_terceiros_classificados", [])),
-                            "pontos": pts_t,
-                        })
+                # 3º colocado: exibe sempre que há palpite, mas só pontua quando fase encerrada
+                if valores.get("terceiro_classificado") and valores.get("terceiro"):
+                    if fase_grupos_encerrada:
+                        chave_t = normalizar_texto(canonicalizar_time(valores["terceiro"]) or valores["terceiro"])
+                        pts_t = PESOS_ESPECIAIS["terceiro_classificado"] if chave_t in terceiros_ok else 0
+                        oficial_t = ", ".join(terceiros_lista)
+                    else:
+                        pts_t = 0
+                        oficial_t = ""
+                    detalhes_especiais.append({
+                        "categoria": f"terceiro_{grupo}",
+                        "palpite": valores["terceiro"],
+                        "oficial": oficial_t,
+                        "pontos": pts_t,
+                    })
 
     return {
         "jogos_finalizados": len(jogos_finalizados),
