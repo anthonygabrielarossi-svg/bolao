@@ -228,9 +228,15 @@ def _extrair_round_number(evento: Dict[str, Any]) -> Optional[int]:
         evento.get("matchday"),
     )
     for candidato in candidatos:
-        valor = _to_int_or_none(candidato)
-        if valor is not None:
-            return valor
+        if isinstance(candidato, dict):
+            for chave in ("number", "round_number", "id", "round", "value"):
+                valor = _to_int_or_none(candidato.get(chave))
+                if valor is not None:
+                    return valor
+        else:
+            valor = _to_int_or_none(candidato)
+            if valor is not None:
+                return valor
     return None
 
 

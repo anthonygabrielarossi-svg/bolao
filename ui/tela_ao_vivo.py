@@ -22,8 +22,8 @@ from utils.team_assets import render_team_identity_html
 
 
 _STATUS_AO_VIVO = frozenset({
-    "inprogress", "1st_half", "halftime", "2nd_half",
-    "live", "first_half", "second_half",
+    "inprogress", "in progress", "1st half", "halftime", "half time",
+    "2nd half", "live", "first half", "second half",
 })
 _STATUS_FINALIZADO = frozenset({
     "finished", "ft", "fulltime", "full time", "complete",
