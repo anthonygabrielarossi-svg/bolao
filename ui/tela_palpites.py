@@ -19,6 +19,7 @@ from database import (
     FASE_NAO_MAPEADA,
     carregar_palpites_especiais,
     carregar_palpites_partidas,
+    get_especiais_abertos,
     listar_jogadores_copa,
     obter_times_por_grupo,
     salvar_palpites_especiais,
@@ -1002,7 +1003,7 @@ def render_tela_palpites(user_id: int) -> None:
     jogos = listar_jogos_por_fase()
     palpites_partidas = carregar_palpites_partidas(user_id)
     palpites_especiais = carregar_palpites_especiais(user_id)
-    especiais_bloqueados = _copa_ja_comecou(jogos)
+    especiais_bloqueados = _copa_ja_comecou(jogos) and not get_especiais_abertos()
 
     if not jogos:
         st.info("Nenhum jogo cadastrado ainda.")

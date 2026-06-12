@@ -688,6 +688,12 @@ def init_db() -> None:
         _ensure_column(conn, "Jogos", "gols_fora", "INTEGER")
         _ensure_column(conn, "Jogos", "estadio", "TEXT")
         _ensure_column(conn, "Palpites_Especiais", "classificados_grupos", "TEXT")
+        _ensure_column(
+            conn,
+            "Resultados_Oficiais",
+            "especiais_abertos",
+            "INTEGER NOT NULL DEFAULT 1" if conn.is_sqlite else "BOOLEAN NOT NULL DEFAULT TRUE",
+        )
 
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_jogos_api_id ON Jogos(api_id)"
@@ -1888,6 +1894,35 @@ def salvar_resultados_oficiais(
                 segundo_grupo_a.strip(),
                 atualizado_em,
             ),
+        )
+        conn.commit()
+    _clear_data_cache()
+
+
+def get_especiais_abertos() -> bool:
+    """Retorna True se o admin liberou os palpites especiais (default: True)."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT especiais_abertos FROM Resultados_Oficiais WHERE id = 1"
+        ).fetchone()
+    if row is None:
+        return True
+    valor = row["especiais_abertos"]
+    if isinstance(valor, bool):
+        return valor
+    return bool(int(valor))
+
+
+def set_especiais_abertos(aberto: bool) -> None:
+    """Abre ou fecha os palpites especiais manualmente."""
+    valor = aberto if not get_database_kind().startswith("sqlite") else (1 if aberto else 0)
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO Resultados_Oficiais (id, especiais_abertos, atualizado_em) "
+            "VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET especiais_abertos = excluded.especiais_abertos, "
+            "atualizado_em = excluded.atualizado_em",
+            (valor, _agora_utc().isoformat()),
         )
         conn.commit()
     _clear_data_cache()

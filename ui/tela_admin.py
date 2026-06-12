@@ -20,6 +20,8 @@ from database import (
     carregar_resultados_oficiais,
     contar_jogadores_copa,
     get_database_kind,
+    get_especiais_abertos,
+    set_especiais_abertos,
     listar_jogadores_copa,
     listar_usuarios,
     listar_jogos,
@@ -411,6 +413,16 @@ def render_tela_admin(user_id: int) -> None:
                     st.info("Nenhum jogo finalizado encontrado; ranking nao foi recalculado.")
 
     with aba_gabarito:
+        st.subheader("Palpites especiais")
+        abertos = get_especiais_abertos()
+        estado_label = "🔓 Abertos" if abertos else "🔒 Fechados"
+        st.info(f"Estado atual: **{estado_label}**")
+        label_btn = "🔒 Fechar palpites especiais" if abertos else "🔓 Liberar palpites especiais"
+        if st.button(label_btn, key="toggle_especiais"):
+            set_especiais_abertos(not abertos)
+            st.rerun()
+
+        st.divider()
         st.subheader("Resultados oficiais")
 
         campeao_auto, vice_auto = _obter_campeao_vice_da_final()
