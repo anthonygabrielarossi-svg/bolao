@@ -853,13 +853,26 @@ def buscar_jogadores_copa(
 
 
 def buscar_jogos_do_dia(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]:
-    """Busca todos os jogos da Copa do Mundo agendados para hoje."""
-    from datetime import datetime, date as _date
+    """Busca todos os jogos da Copa do Mundo agendados para hoje em horario BRT.
+
+    A API BSD filtra datas em UTC, entao jogos noturnos (ex: 22h BRT = 01h UTC do dia
+    seguinte) seriam excluidos com date_to=hoje. A solucao: consultar ate amanha e
+    filtrar localmente pelo horario BRT do evento.
+    """
+    from datetime import datetime, date as _date, timedelta
+
     try:
         from zoneinfo import ZoneInfo
-        hoje = datetime.now(ZoneInfo(WORLD_CUP_TZ)).strftime("%Y-%m-%d")
+        _tz = ZoneInfo(WORLD_CUP_TZ)
+        agora_local = datetime.now(_tz)
+        hoje_str = agora_local.strftime("%Y-%m-%d")
+        amanha_str = (agora_local + timedelta(days=1)).strftime("%Y-%m-%d")
+        hoje_date = agora_local.date()
     except Exception:
-        hoje = _date.today().isoformat()
+        _tz = None
+        hoje_str = _date.today().isoformat()
+        amanha_str = (_date.today() + timedelta(days=1)).isoformat()
+        hoje_date = None
 
     season = obter_season_copa(timeout=timeout)
     eventos: List[Dict[str, Any]] = []
@@ -870,7 +883,7 @@ def buscar_jogos_do_dia(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]:
             try:
                 eventos = _coletar_paginado(
                     EVENTS_ENDPOINT,
-                    params={"season": season_id, "date_from": hoje, "date_to": hoje, "tz": WORLD_CUP_TZ},
+                    params={"season": season_id, "date_from": hoje_str, "date_to": amanha_str, "tz": WORLD_CUP_TZ},
                     timeout=timeout,
                     rotulo=f"events hoje season={season_id}",
                 )
@@ -881,7 +894,7 @@ def buscar_jogos_do_dia(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]:
         try:
             eventos = _coletar_paginado(
                 EVENTS_ENDPOINT,
-                params={"league": WORLD_CUP_LEAGUE_ID, "date_from": hoje, "date_to": hoje, "tz": WORLD_CUP_TZ},
+                params={"league": WORLD_CUP_LEAGUE_ID, "date_from": hoje_str, "date_to": amanha_str, "tz": WORLD_CUP_TZ},
                 timeout=timeout,
                 rotulo="events hoje fallback",
             )
@@ -889,7 +902,27 @@ def buscar_jogos_do_dia(timeout: int = DEFAULT_TIMEOUT) -> List[Dict[str, Any]]:
             settings.debug_log(f"[BSD] Erro no fallback de buscar jogos do dia: {exc}")
 
     jogos = [_normalizar_evento_ao_vivo(ev) for ev in eventos if isinstance(ev, dict)]
-    settings.debug_log(f"[BSD] {len(jogos)} jogos da Copa para hoje ({hoje}).")
+
+    # Filtra localmente: mantém apenas jogos cujo horário BRT seja hoje.
+    if hoje_date is not None and _tz is not None:
+        def _data_brt(jogo: Dict[str, Any]) -> Optional[_date]:
+            data_hora = jogo.get("data_hora")
+            if not data_hora:
+                return None
+            try:
+                dt = datetime.fromisoformat(str(data_hora).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(_tz).date()
+            except Exception:
+                return None
+
+        antes = len(jogos)
+        jogos = [j for j in jogos if _data_brt(j) in (hoje_date, None)]
+        settings.debug_log(f"[BSD] Filtro local BRT: {antes} → {len(jogos)} jogos para hoje ({hoje_str}).")
+    else:
+        settings.debug_log(f"[BSD] {len(jogos)} jogos da Copa para hoje ({hoje_str}).")
+
     return jogos
 
 
