@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import html
 import json
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 from collections import defaultdict
 from textwrap import dedent
 from typing import Any, Dict, List, Optional
@@ -48,6 +48,28 @@ def _copa_ja_comecou(jogos: List) -> bool:
     if not datas:
         return False
     return jogo_ja_comecou(min(datas))
+
+
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _TZ_BRT = _ZoneInfo("America/Sao_Paulo")
+except Exception:
+    _TZ_BRT = None
+
+
+def _data_jogo_local(jogo) -> Optional[_date]:
+    data_iso = getattr(jogo, "data_jogo", None)
+    if not data_iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(data_iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if _TZ_BRT:
+            dt = dt.astimezone(_TZ_BRT)
+        return dt.date()
+    except ValueError:
+        return None
 
 
 def _vencedor_previsto(time_a: str, time_b: str, palpite_a: int, palpite_b: int) -> str:
@@ -639,13 +661,16 @@ def _render_jogos_rodada_grupo(
     rodada: int,
     jogos_rodada: List,
     palpites_partidas: Dict[int, Dict[str, int]],
+    *,
+    filtro_fn=None,
 ) -> None:
-    if not jogos_rodada:
-        st.info("Nenhum jogo encontrado para esta rodada.")
+    _fn = filtro_fn or (lambda j: True)
+    jogos_visiveis = [j for j in jogos_rodada if _fn(j)]
+    if not jogos_visiveis:
         return
 
     st.markdown(f"<div class='wc-round-label'>{rodada}ª rodada</div>", unsafe_allow_html=True)
-    for indice, jogo in enumerate(jogos_rodada, start=1):
+    for indice, jogo in enumerate(jogos_visiveis, start=1):
         jogo_id = jogo.id if jogo.id is not None else int(f"{rodada}{indice}")
         palpite_atual = palpites_partidas.get(jogo_id, {})
         _render_jogo_card(
@@ -661,11 +686,22 @@ def render_abas_rodadas_grupo(
     grupo_label: str,
     jogos_grupo: List,
     palpites_partidas: Dict[int, Dict[str, int]],
+    *,
+    filtro_fn=None,
 ) -> None:
-    tabs = st.tabs(["1ª Rodada", "2ª Rodada", "3ª Rodada"])
-    jogos_grupo, jogos_por_rodada = atribuir_rodada_interna_grupo(jogos_grupo)
+    _fn = filtro_fn or (lambda j: True)
+    # atribuir_rodada_interna_grupo sempre usa lista completa para manter numeração correta
+    _, jogos_por_rodada = atribuir_rodada_interna_grupo(jogos_grupo)
 
-    for idx, rodada in enumerate((1, 2, 3)):
+    rodadas_visiveis = [r for r in (1, 2, 3) if any(_fn(j) for j in jogos_por_rodada.get(r, []))]
+
+    if not rodadas_visiveis:
+        st.info("Nenhum jogo neste grupo para a data selecionada.")
+        return
+
+    labels = [f"{r}ª Rodada" for r in rodadas_visiveis]
+    tabs = st.tabs(labels)
+    for idx, rodada in enumerate(rodadas_visiveis):
         with tabs[idx]:
             jogos_rodada = _ordenar_jogos_grupo(jogos_por_rodada.get(rodada, []))
             _render_jogos_rodada_grupo(
@@ -674,6 +710,7 @@ def render_abas_rodadas_grupo(
                 rodada=rodada,
                 jogos_rodada=jogos_rodada,
                 palpites_partidas=palpites_partidas,
+                filtro_fn=_fn,
             )
 
 
@@ -681,7 +718,10 @@ def _render_fase_grupos(
     user_id: int,
     jogos: List,
     palpites_partidas: Dict[int, Dict[str, int]],
+    *,
+    filtro_fn=None,
 ) -> None:
+    _fn = filtro_fn or (lambda j: True)
     jogos_por_grupo: Dict[str, List] = defaultdict(list)
     jogos_sem_grupo: List = []
 
@@ -695,8 +735,13 @@ def _render_fase_grupos(
     st.markdown("<div class='wc-phase-title'>Fase de Grupos</div>", unsafe_allow_html=True)
     st.caption("Apenas os jogos para palpitar, organizados por grupo e rodada.")
 
+    grupos_renderizados = 0
     for grupo_label in WORLD_CUP_GROUPS_2026.keys():
         jogos_grupo = _ordenar_jogos_grupo(jogos_por_grupo.get(grupo_label, []))
+        if filtro_fn and not any(_fn(j) for j in jogos_grupo):
+            continue
+
+        grupos_renderizados += 1
         st.markdown(f"<div class='wc-group-title'>{grupo_label.upper()}</div>", unsafe_allow_html=True)
         st.caption(f"{len(jogos_grupo)} jogos importados neste grupo.")
 
@@ -709,13 +754,18 @@ def _render_fase_grupos(
                     grupo_label=grupo_label,
                     jogos_grupo=jogos_grupo,
                     palpites_partidas=palpites_partidas,
+                    filtro_fn=_fn,
                 )
 
         st.divider()
 
-    if jogos_sem_grupo:
+    if grupos_renderizados == 0:
+        st.info("Nenhum jogo da Fase de Grupos para a data selecionada.")
+
+    jogos_sem_grupo_visiveis = [j for j in _ordenar_jogos_grupo(jogos_sem_grupo) if _fn(j)]
+    if jogos_sem_grupo_visiveis:
         st.markdown("<div class='wc-round-label'>Não mapeados</div>", unsafe_allow_html=True)
-        for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos_sem_grupo), start=1):
+        for indice, jogo in enumerate(jogos_sem_grupo_visiveis, start=1):
             jogo_id = jogo.id if jogo.id is not None else indice
             palpite_atual = palpites_partidas.get(jogo_id, {})
             _render_jogo_card(
@@ -726,13 +776,22 @@ def _render_fase_grupos(
             )
 
 
-def _render_fase_simples(user_id: int, fase: str, jogos: List, palpites_partidas: Dict[int, Dict[str, int]]) -> None:
-    if not jogos:
+def _render_fase_simples(
+    user_id: int,
+    fase: str,
+    jogos: List,
+    palpites_partidas: Dict[int, Dict[str, int]],
+    *,
+    filtro_fn=None,
+) -> None:
+    _fn = filtro_fn or (lambda j: True)
+    jogos_visiveis = [j for j in jogos if _fn(j)]
+    if not jogos_visiveis:
         return
 
     fase_exibicao = _rotulo_fase_exibicao(fase)
     with st.expander(fase_exibicao, expanded=False):
-        for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos), start=1):
+        for indice, jogo in enumerate(_ordenar_jogos_grupo(jogos_visiveis), start=1):
             jogo_id = jogo.id if jogo.id is not None else indice
             palpite_atual = palpites_partidas.get(jogo_id, {})
             _render_jogo_card(
@@ -1005,6 +1064,22 @@ def render_tela_palpites(user_id: int) -> None:
     palpites_especiais = carregar_palpites_especiais(user_id)
     especiais_bloqueados = _copa_ja_comecou(jogos) and not get_especiais_abertos()
 
+    filtro = st.radio(
+        "Exibir jogos:",
+        ["Todos", "Hoje", "Amanhã"],
+        horizontal=True,
+        index=0,
+        key="filtro_data_palpites",
+    )
+    hoje_brt = datetime.now(_TZ_BRT).date() if _TZ_BRT else _date.today()
+    amanha_brt = hoje_brt + timedelta(days=1)
+    if filtro == "Hoje":
+        filtro_fn = lambda j: _data_jogo_local(j) == hoje_brt
+    elif filtro == "Amanhã":
+        filtro_fn = lambda j: _data_jogo_local(j) == amanha_brt
+    else:
+        filtro_fn = None
+
     if not jogos:
         st.info("Nenhum jogo cadastrado ainda.")
     else:
@@ -1014,7 +1089,7 @@ def render_tela_palpites(user_id: int) -> None:
 
         jogos_fase_grupos = jogos_por_fase.get("Fase de Grupos", [])
         if jogos_fase_grupos:
-            _render_fase_grupos(user_id, jogos_fase_grupos, palpites_partidas)
+            _render_fase_grupos(user_id, jogos_fase_grupos, palpites_partidas, filtro_fn=filtro_fn)
         else:
             st.info("Nenhum jogo da Fase de Grupos cadastrado ainda.")
 
@@ -1024,9 +1099,9 @@ def render_tela_palpites(user_id: int) -> None:
             if fase not in {"Fase de Grupos", FASE_NAO_MAPEADA}
         ]
         for fase in fases_ordenadas:
-            _render_fase_simples(user_id, fase, jogos_por_fase.get(fase, []), palpites_partidas)
+            _render_fase_simples(user_id, fase, jogos_por_fase.get(fase, []), palpites_partidas, filtro_fn=filtro_fn)
 
         if jogos_por_fase.get(FASE_NAO_MAPEADA):
-            _render_fase_simples(user_id, FASE_NAO_MAPEADA, jogos_por_fase.get(FASE_NAO_MAPEADA, []), palpites_partidas)
+            _render_fase_simples(user_id, FASE_NAO_MAPEADA, jogos_por_fase.get(FASE_NAO_MAPEADA, []), palpites_partidas, filtro_fn=filtro_fn)
 
     _render_palpites_especiais(user_id, palpites_especiais, bloqueado=especiais_bloqueados)
