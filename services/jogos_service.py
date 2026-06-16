@@ -550,20 +550,27 @@ def listar_jogos_por_fase(fase: Optional[str] = None) -> List[Jogo]:
 
 def atualizar_resultados(
     executed_by_user_id: Optional[int] = None,
+    *,
+    progress_callback=None,
 ) -> int:
     """Atualiza os resultados dos jogos ja iniciados ou finalizados."""
     _exigir_admin(executed_by_user_id)
 
     jogos_local = listar_jogos()
+    jogos_para_atualizar = [
+        j for j in jogos_local
+        if _normalizar_texto(j.competicao) == _normalizar_texto(COMPETICAO_PADRAO)
+        and j.api_id is not None
+        and _jogo_deve_ser_atualizado(j)
+    ]
+
+    total = len(jogos_para_atualizar)
     atualizados = 0
     jogos_atualizados: List[Jogo] = []
 
-    for jogo in jogos_local:
-        if _normalizar_texto(jogo.competicao) != _normalizar_texto(COMPETICAO_PADRAO):
-            continue
-        if jogo.api_id is None or not _jogo_deve_ser_atualizado(jogo):
-            continue
-
+    for i, jogo in enumerate(jogos_para_atualizar):
+        if progress_callback:
+            progress_callback(i, total)
         try:
             jogo_atualizado = buscar_detalhes_jogo(int(jogo.api_id))
         except BSDAPIError as exc:
@@ -575,6 +582,9 @@ def atualizar_resultados(
         jogo_atualizado.competicao = COMPETICAO_PADRAO
         jogos_atualizados.append(jogo_atualizado)
         atualizados += 1
+
+    if progress_callback:
+        progress_callback(total, total)
 
     if jogos_atualizados:
         with get_connection() as conn:

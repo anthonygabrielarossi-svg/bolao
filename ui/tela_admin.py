@@ -259,21 +259,52 @@ def render_tela_admin(user_id: int) -> None:
         st.subheader("Atualizacao de resultados")
         st.caption(f"Fluxo fixo para {COMPETICAO_PADRAO} (liga 27).")
         if st.button("Atualizar resultados agora"):
+            barra = st.progress(0)
+            status = st.empty()
+
+            def _cb_resultados(atual: int, total: int) -> None:
+                # etapa 1 ocupa 0-60% da barra
+                pct = int((atual / total) * 60) if total else 60
+                barra.progress(min(pct, 60))
+                status.caption(f"Buscando resultados na API: {atual}/{total} jogos...")
+
             try:
-                atualizados = atualizar_resultados(executed_by_user_id=user_id)
+                status.caption("Buscando resultados na API...")
+                atualizados = atualizar_resultados(
+                    executed_by_user_id=user_id,
+                    progress_callback=_cb_resultados,
+                )
+
+                barra.progress(65)
+                status.caption("Atualizando tabela de classificação dos grupos...")
                 classificacao = atualizar_tabela_classificacao(executed_by_user_id=user_id)
+
+                barra.progress(78)
+                status.caption("Gerando confrontos de mata-mata...")
                 mata_mata = gerar_mata_mata_automatico(executed_by_user_id=user_id)
+
+                barra.progress(90)
+                status.caption("Recalculando ranking dos participantes...")
                 ranking = recalcular_ranking_automaticamente(executed_by_user_id=user_id)
+
+                barra.progress(100)
+                status.empty()
             except BSDAPIError as exc:
+                barra.empty()
+                status.empty()
                 st.warning(f"Nao foi possivel consultar a API de resultados: {exc}")
             except PermissionError as exc:
+                barra.empty()
+                status.empty()
                 st.error(str(exc))
             except DatabaseError as exc:
+                barra.empty()
+                status.empty()
                 st.error(f"Erro ao atualizar o banco: {exc}")
             else:
                 st.success(
-                    f"{atualizados} resultados atualizados, {len(classificacao)} linhas de classificacao, "
-                    f"{mata_mata} jogos de mata-mata gerados e {len(ranking)} usuarios recalculados."
+                    f"{atualizados} resultados atualizados · {len(classificacao)} linhas de classificação · "
+                    f"{mata_mata} jogos de mata-mata gerados · {len(ranking)} usuários recalculados."
                 )
 
         st.divider()
