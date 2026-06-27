@@ -1059,7 +1059,10 @@ def render_tela_palpites(user_id: int) -> None:
         unsafe_allow_html=True,
     )
 
-    jogos = listar_jogos_por_fase()
+    jogos = [
+        j for j in listar_jogos_por_fase()
+        if not getattr(j, "is_placeholder_bracket", False)
+    ]
     palpites_partidas = carregar_palpites_partidas(user_id)
     palpites_especiais = carregar_palpites_especiais(user_id)
     especiais_bloqueados = _copa_ja_comecou(jogos) and not get_especiais_abertos()
