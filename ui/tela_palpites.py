@@ -1059,9 +1059,14 @@ def render_tela_palpites(user_id: int) -> None:
         unsafe_allow_html=True,
     )
 
+    _fases_grupo = {"Fase de Grupos", FASE_NAO_MAPEADA}
     jogos = [
         j for j in listar_jogos_por_fase()
         if not getattr(j, "is_placeholder_bracket", False)
+        and (
+            (j.fase or FASE_NAO_MAPEADA) in _fases_grupo
+            or getattr(j, "api_id", None) is not None
+        )
     ]
     palpites_partidas = carregar_palpites_partidas(user_id)
     palpites_especiais = carregar_palpites_especiais(user_id)
