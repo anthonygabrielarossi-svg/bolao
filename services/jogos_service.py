@@ -37,7 +37,11 @@ from .api_service import (
     inferir_fase,
     mapear_evento_para_jogo,
 )
-from .classificacao_service import atualizar_tabela_classificacao, obter_top_duas_por_grupo
+from .classificacao_service import (
+    atualizar_tabela_classificacao,
+    calcular_classificacao_real_grupos,
+    obter_top_duas_por_grupo,
+)
 from .ranking_service import recalcular_ranking_automaticamente
 from utils.datetime_utils import jogo_ja_comecou
 from utils.formatters import formatar_nome_time
@@ -596,9 +600,58 @@ def atualizar_resultados(
     return atualizados
 
 
+_FASES_ELIMINATORIAS = frozenset({
+    _normalizar_texto("16-avos de Final"),
+    _normalizar_texto("Oitavas de Final"),
+    _normalizar_texto("Quartas de Final"),
+    _normalizar_texto("Semifinal"),
+    _normalizar_texto("Final"),
+    _normalizar_texto("Disputa de 3º Lugar"),
+})
+
+
+def _tem_mata_mata_da_api() -> bool:
+    """Retorna True se a API já forneceu pelo menos um jogo de fase eliminatória."""
+    return any(
+        jogo.api_id is not None
+        and _normalizar_texto(jogo.fase or "") in _FASES_ELIMINATORIAS
+        for jogo in listar_jogos()
+    )
+
+
+def _obter_terceiros_reais() -> List[str]:
+    """Retorna os nomes dos 8 melhores 3ºs colocados pela classificação real."""
+    classificacao_por_grupo: Dict[str, List] = {}
+    for item in calcular_classificacao_real_grupos():
+        classificacao_por_grupo.setdefault(item.grupo, []).append(item)
+
+    terceiros = []
+    for itens in classificacao_por_grupo.values():
+        ordenados = sorted(
+            itens,
+            key=lambda x: (-x.pontos, -x.saldo_gols, -x.gols_pro, x.time_nome.lower()),
+        )
+        if len(ordenados) >= 3:
+            terceiros.append(ordenados[2])
+
+    terceiros.sort(
+        key=lambda x: (-x.pontos, -x.saldo_gols, -x.gols_pro, x.time_nome.lower())
+    )
+    return [t.time_nome for t in terceiros[:8]]
+
+
 def gerar_mata_mata_automatico(executed_by_user_id: Optional[int] = None) -> int:
-    """Cria confrontos de mata-mata com base na classificacao atual."""
+    """Cria confrontos de mata-mata como fallback quando a API não os forneceu.
+
+    Se a API já importou jogos de fase eliminatória (api_id preenchido),
+    a função retorna 0 sem alterar nada para preservar os dados oficiais.
+    Para a Copa 2026 (12 grupos) inclui os 8 melhores 3ºs colocados,
+    gerando os 16 jogos corretos para os 16-avos de Final.
+    """
     _exigir_admin(executed_by_user_id)
+
+    if _tem_mata_mata_da_api():
+        return 0
 
     atualizar_tabela_classificacao(executed_by_user_id=executed_by_user_id)
     top_duas = obter_top_duas_por_grupo()
@@ -608,6 +661,8 @@ def gerar_mata_mata_automatico(executed_by_user_id: Optional[int] = None) -> int
 
     confrontos: List[Jogo] = []
     fase_mata_mata = _fase_mata_mata_inicial(len(grupos_ordenados))
+
+    # Jogos entre 1ºs e 2ºs colocados (pares adjacentes: A↔B, C↔D, ...)
     for indice in range(0, len(grupos_ordenados) - 1, 2):
         grupo_a = grupos_ordenados[indice]
         grupo_b = grupos_ordenados[indice + 1]
@@ -616,30 +671,30 @@ def gerar_mata_mata_automatico(executed_by_user_id: Optional[int] = None) -> int
         if len(melhores_a) < 2 or len(melhores_b) < 2:
             continue
 
-        confrontos.extend(
-            [
+        confrontos.extend([
+            Jogo(
+                None, melhores_a[0], melhores_b[1],
+                fase=fase_mata_mata, grupo=None, data_jogo=None,
+                status="agendado", competicao=COMPETICAO_PADRAO,
+            ),
+            Jogo(
+                None, melhores_b[0], melhores_a[1],
+                fase=fase_mata_mata, grupo=None, data_jogo=None,
+                status="agendado", competicao=COMPETICAO_PADRAO,
+            ),
+        ])
+
+    # Copa 2026: inclui os 8 melhores 3ºs colocados (4 jogos adicionais)
+    if len(grupos_ordenados) > 8:
+        terceiros = _obter_terceiros_reais()
+        for i in range(0, len(terceiros) - 1, 2):
+            confrontos.append(
                 Jogo(
-                    None,
-                    melhores_a[0],
-                    melhores_b[1],
-                    fase=fase_mata_mata,
-                    grupo=None,
-                    data_jogo=None,
-                    status="agendado",
-                    competicao=COMPETICAO_PADRAO,
-                ),
-                Jogo(
-                    None,
-                    melhores_b[0],
-                    melhores_a[1],
-                    fase=fase_mata_mata,
-                    grupo=None,
-                    data_jogo=None,
-                    status="agendado",
-                    competicao=COMPETICAO_PADRAO,
-                ),
-            ]
-        )
+                    None, terceiros[i], terceiros[i + 1],
+                    fase=fase_mata_mata, grupo=None, data_jogo=None,
+                    status="agendado", competicao=COMPETICAO_PADRAO,
+                )
+            )
 
     salvar_jogos_em_lote(confrontos)
     return len(confrontos)

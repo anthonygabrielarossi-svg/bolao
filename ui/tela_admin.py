@@ -280,7 +280,7 @@ def render_tela_admin(user_id: int) -> None:
                 classificacao = atualizar_tabela_classificacao(executed_by_user_id=user_id)
 
                 barra.progress(78)
-                status.caption("Gerando confrontos de mata-mata...")
+                status.caption("Verificando confrontos de mata-mata...")
                 mata_mata = gerar_mata_mata_automatico(executed_by_user_id=user_id)
 
                 barra.progress(90)
@@ -302,9 +302,14 @@ def render_tela_admin(user_id: int) -> None:
                 status.empty()
                 st.error(f"Erro ao atualizar o banco: {exc}")
             else:
+                mata_mata_msg = (
+                    "mata-mata via API ✓"
+                    if mata_mata == 0
+                    else f"{mata_mata} jogos de mata-mata gerados (fallback)"
+                )
                 st.success(
                     f"{atualizados} resultados atualizados · {len(classificacao)} linhas de classificação · "
-                    f"{mata_mata} jogos de mata-mata gerados · {len(ranking)} usuários recalculados."
+                    f"{mata_mata_msg} · {len(ranking)} usuários recalculados."
                 )
 
         st.divider()
