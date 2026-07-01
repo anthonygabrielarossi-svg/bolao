@@ -204,7 +204,15 @@ def render_tela_resultados() -> None:
         unsafe_allow_html=True,
     )
 
-    jogos = listar_jogos_por_fase()
+    _fases_grupo = {"Fase de Grupos", FASE_NAO_MAPEADA}
+    jogos = [
+        j for j in listar_jogos_por_fase()
+        if not getattr(j, "is_placeholder_bracket", False)
+        and (
+            (j.fase or FASE_NAO_MAPEADA) in _fases_grupo
+            or getattr(j, "api_id", None) is not None
+        )
+    ]
     if not jogos:
         st.info("Nenhum jogo cadastrado ainda.")
         return
