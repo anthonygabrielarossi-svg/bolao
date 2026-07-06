@@ -553,6 +553,18 @@ def mapear_evento_para_jogo(evento_api: Dict[str, Any], *, classificar_fase: boo
     status = _extrair_status(evento_api) or "notstarted"
     placar_casa = _to_int_or_none(evento_api.get("home_score"))
     placar_fora = _to_int_or_none(evento_api.get("away_score"))
+
+    # A API retorna gols da prorrogação separados em extra_time_score (não acumulado).
+    # penalty_shootout não é somado ao placar — só determina o classificado.
+    et = evento_api.get("extra_time_score")
+    if isinstance(et, dict):
+        et_home = _to_int_or_none(et.get("home"))
+        et_away = _to_int_or_none(et.get("away"))
+        if et_home is not None and placar_casa is not None:
+            placar_casa += et_home
+        if et_away is not None and placar_fora is not None:
+            placar_fora += et_away
+
     fase = inferir_fase(evento_api) if classificar_fase else FASE_NAO_MAPEADA
     grupo = inferir_grupo_por_times(home_team, away_team) if fase == "Fase de Grupos" else None
     home_team_logo_url = get_team_logo_url(home_team_id)
